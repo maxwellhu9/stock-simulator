@@ -1,0 +1,166 @@
+:root {
+  --bg: #0f1418;
+  --panel: #161c22;
+  --panel-2: #1c242c;
+  --border: #26313b;
+  --text: #e3e9ef;
+  --muted: #8b9aa9;
+  --bid: #3fcf8e;
+  --bid-dim: #142b23;
+  --ask: #f4736a;
+  --ask-dim: #331c1e;
+  --accent: #3d8bfd;
+  --warn: #e0a83c;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.mono {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+header.top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+header.top h1 { font-size: 15px; margin: 0; letter-spacing: 0.02em; }
+header.top .sym {
+  font-size: 12px; color: var(--muted); padding: 3px 9px;
+  border: 1px solid var(--border); border-radius: 5px;
+}
+header.top .right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(340px, 1.05fr) minmax(300px, 1fr);
+  gap: 14px;
+  padding: 14px 20px 40px;
+  align-items: start;
+}
+@media (max-width: 1080px) { .layout { grid-template-columns: 1fr; } }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.panel h2 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--muted); margin: 0; padding: 11px 14px;
+  border-bottom: 1px solid var(--border); font-weight: 600;
+}
+.panel .body { padding: 12px 14px; }
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted); text-align: right; font-weight: 600;
+  padding: 7px 14px; border-bottom: 1px solid var(--border);
+}
+th:first-child, td:first-child { text-align: left; }
+td { padding: 5px 14px; font-size: 13px; }
+
+/* Depth bars sit behind the numbers so relative size reads instantly. */
+tr.level { position: relative; }
+tr.level td { position: relative; z-index: 1; }
+tr.level .bar {
+  position: absolute; top: 1px; bottom: 1px; right: 0;
+  z-index: 0; border-radius: 2px;
+}
+/* The depth bar is absolutely positioned, and CSS paints positioned elements
+   above non-positioned inline text even at the same z-index. So the price has
+   to be positioned too, or the widest bars swallow it. */
+.bid-px, .ask-px { position: relative; z-index: 1; }
+.bid-px { color: var(--bid); }
+.ask-px { color: var(--ask); }
+.bid-bar { background: var(--bid-dim); }
+.ask-bar { background: var(--ask-dim); }
+
+.spread-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px; font-size: 12px; color: var(--muted);
+  background: var(--panel-2);
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+
+label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+input, select {
+  width: 100%; padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--panel-2);
+  color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums;
+}
+input:focus, select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.field { margin-bottom: 11px; }
+.row { display: flex; gap: 10px; }
+.row > * { flex: 1; }
+
+.sidetabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.sidetabs button {
+  flex: 1; padding: 8px; border-radius: 6px; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--border); background: var(--panel-2);
+  color: var(--muted); cursor: pointer;
+}
+.sidetabs button.on-buy { background: var(--bid); border-color: var(--bid); color: #04150d; }
+.sidetabs button.on-sell { background: var(--ask); border-color: var(--ask); color: #1b0605; }
+
+button.submit {
+  width: 100%; padding: 10px; border-radius: 6px; font-size: 13px; font-weight: 700;
+  border: none; cursor: pointer; color: #04150d;
+}
+button.submit.buy { background: var(--bid); }
+button.submit.sell { background: var(--ask); color: #1b0605; }
+button.submit:disabled { opacity: 0.45; cursor: not-allowed; }
+
+button.link {
+  background: none; border: none; color: var(--ask);
+  cursor: pointer; font-size: 12px; padding: 0;
+}
+button.ghost {
+  padding: 7px 12px; border-radius: 6px; font-size: 12px;
+  border: 1px solid var(--border); background: var(--panel-2);
+  color: var(--text); cursor: pointer;
+}
+
+.stat { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; }
+.stat span:first-child { color: var(--muted); }
+.stat.big { font-size: 16px; font-weight: 600; padding-top: 9px; }
+
+.err {
+  background: var(--ask-dim); border: 1px solid var(--ask); color: #ffb4ae;
+  padding: 9px 11px; border-radius: 6px; font-size: 12px; margin-bottom: 11px;
+}
+.ok {
+  background: var(--bid-dim); border: 1px solid var(--bid); color: #a5e5c4;
+  padding: 9px 11px; border-radius: 6px; font-size: 12px; margin-bottom: 11px;
+}
+.empty { color: var(--muted); font-size: 12px; padding: 14px; text-align: center; }
+.pill {
+  font-size: 10px; padding: 2px 7px; border-radius: 20px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+
+.symsel {
+  width: auto; padding: 4px 8px; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.live {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
+  padding: 3px 9px; border-radius: 20px; font-weight: 700;
+}
+.live.on { color: var(--bid); background: var(--bid-dim); }
+.live.off { color: var(--warn); background: #33290f; }
