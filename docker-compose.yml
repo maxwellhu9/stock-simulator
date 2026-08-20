@@ -1,0 +1,52 @@
+# Three services: a database, the API, and the built frontend behind nginx.
+#
+# `depends_on: condition: service_healthy` is the important bit -- without it
+# the API starts while Postgres is still initialising, fails to connect, and
+# dies. "Started" is not the same as "ready to accept connections."
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: exchange
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-exchange_dev_only}
+      POSTGRES_DB: paper_exchange
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exchange -d paper_exchange"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Not published to the host by default: nothing outside the compose network
+    # has any business talking to the database directly.
+    expose:
+      - "5432"
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://exchange:${POSTGRES_PASSWORD:-exchange_dev_only}@db:5432/paper_exchange
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8077:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8077}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
