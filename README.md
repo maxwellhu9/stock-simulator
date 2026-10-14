@@ -1,6 +1,6 @@
 # Stock Simulator
 
-A trading exchange you can actually place orders on. It has a real matching
+A trading exchange you can place orders on. It has a real matching
 engine, accounts with cash that can run out, and an order book that updates live
 in the browser.
 
