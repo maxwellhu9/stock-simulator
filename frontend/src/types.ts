@@ -106,6 +106,8 @@ export interface SimState {
   speed: number;
   paused: boolean;
   symbols: { symbol: string; last: Money; fair: Money }[];
+  random_news: boolean;
+  scenario: { key: string; name: string; ends_in: number } | null;
 }
 
 export interface HistoryPoint {
@@ -123,4 +125,19 @@ export interface ShockResult {
   avg_fill: Money;
   slippage_pct: number;
   orders_hit: number;
+}
+
+export interface MarketEvent {
+  t: number;
+  symbol: string | null;
+  kind: "good" | "bad" | "scenario";
+  headline: string;
+  impact_pct: number;
+}
+
+export interface ScenarioInfo {
+  key: string;
+  name: string;
+  description: string;
+  seconds: number;
 }

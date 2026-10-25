@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api } from "./api";
 import { OrderSheet } from "./components/OrderSheet";
-import type { Order, Portfolio, Side } from "./types";
+import type { MarketEvent, Order, Portfolio, Side } from "./types";
 import { useMarketSocket } from "./useMarketSocket";
+import { Icon } from "./components/Icon";
+import { HomeView } from "./views/HomeView";
 import { MarketView } from "./views/MarketView";
 import { PortfolioView } from "./views/PortfolioView";
-import { TradeView } from "./views/TradeView";
+import { StockView } from "./views/StockView";
 
-type Tab = "trade" | "market" | "portfolio";
-const TABS: [Tab, string][] = [["trade", "Trade"], ["market", "Market"], ["portfolio", "Portfolio"]];
+type Tab = "home" | "stock" | "market" | "portfolio";
+const TABS: [Tab, string, string][] = [
+  ["home", "Home", "home"],
+  ["stock", "Stocks", "stocks"],
+  ["market", "Market lab", "lab"],
+  ["portfolio", "Portfolio", "portfolio"],
+];
+const KNOWN: Tab[] = ["home", "stock", "market", "portfolio"];
 
 function stored(key: string): string | null {
   try {
@@ -28,12 +36,16 @@ function store(key: string, value: string | null) {
 
 export default function App() {
   const [account, setAccount] = useState<string | null>(() => stored("account"));
-  const [tab, setTab] = useState<Tab>(() => (stored("tab") as Tab) ?? "trade");
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = stored("tab") as Tab | null;
+    return t && KNOWN.includes(t) ? t : "home";
+  });
   const [symbol, setSymbol] = useState(() => stored("symbol") ?? "AAPL");
   const [symbols, setSymbols] = useState<string[]>(["AAPL", "NVDA", "MSFT"]);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [sheet, setSheet] = useState<Side | null>(null);
+  const [events, setEvents] = useState<MarketEvent[]>([]);
 
   const { book, trades, last } = useMarketSocket(symbol);
 
@@ -63,6 +75,22 @@ export default function App() {
     api.symbols().then((s) => s.length && setSymbols(s.map((x) => x.symbol))).catch(() => undefined);
   }, []);
 
+  // Every symbol's events in one list; each page filters to what it shows.
+  const loadEvents = useCallback(() => {
+    api.events().then(setEvents).catch(() => undefined);
+  }, []);
+  const symbolEvents = events.filter((e) => !e.symbol || e.symbol === symbol);
+  const open = (s: string) => {
+    setSymbol(s);
+    setTab("stock");
+  };
+
+  useEffect(() => {
+    loadEvents();
+    const id = setInterval(loadEvents, 2000);
+    return () => clearInterval(id);
+  }, [loadEvents]);
+
   useEffect(() => store("tab", tab), [tab]);
   useEffect(() => store("symbol", symbol), [symbol]);
 
@@ -71,35 +99,38 @@ export default function App() {
   }
 
   return (
-    <>
-      <header className="top">
-        <span className="wordmark">Exchange</span>
-        <nav className="tabs">
-          {TABS.map(([k, label]) => (
-            <button key={k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}>
-              {label}
-            </button>
-          ))}
-        </nav>
-        <div className="who">
-          <span className="soft">{account}</span>
+    <div className="app">
+      <aside className="side">
+        <div className="brand">Exchange</div>
+        {TABS.map(([k, label, icon]) => (
+          <button key={k} className={`nav-item ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}>
+            <Icon name={icon} />{label}
+          </button>
+        ))}
+        <div className="side-foot">
+          <div className="who-name">{account}</div>
           <button className="link" onClick={() => { store("account", null); setAccount(null); setPortfolio(null); }}>
-            Switch
+            Switch account
           </button>
         </div>
-      </header>
+      </aside>
 
-      <main>
-        {tab === "trade" && (
-          <TradeView symbol={symbol} symbols={symbols} onSymbol={setSymbol}
-                     last={last} book={book} portfolio={portfolio} onTrade={setSheet} />
+      <main className="main">
+        {tab === "home" && (
+          <HomeView account={account} symbols={symbols} portfolio={portfolio} orders={orders}
+                    events={events} onOpen={open} />
+        )}
+        {tab === "stock" && (
+          <StockView symbol={symbol} symbols={symbols} onSymbol={setSymbol}
+                     last={last} book={book} portfolio={portfolio} onTrade={setSheet}
+                     events={symbolEvents} />
         )}
         {tab === "market" && (
           <MarketView account={account} symbol={symbol} symbols={symbols} onSymbol={setSymbol}
-                      book={book} trades={trades} />
+                      book={book} trades={trades} events={symbolEvents} onEvent={loadEvents} />
         )}
         {tab === "portfolio" && (
-          <PortfolioView portfolio={portfolio} orders={orders}
+          <PortfolioView portfolio={portfolio} orders={orders} onOpen={open}
                          onCancel={async (id) => { await api.cancelOrder(id).catch(() => undefined); refresh(); }} />
         )}
       </main>
@@ -108,7 +139,7 @@ export default function App() {
         <OrderSheet account={account} symbol={symbol} initialSide={sheet} book={book}
                     portfolio={portfolio} onClose={() => setSheet(null)} onPlaced={refresh} />
       )}
-    </>
+    </div>
   );
 }
 
@@ -143,7 +174,7 @@ function SignIn({ onSignIn }: { onSignIn: (name: string) => void }) {
   }
 
   return (
-    <div className="signin">
+    <div className="signin card">
       <h1>Exchange</h1>
       <p className="note">
         Practice trading against a market full of simulated traders. New names start

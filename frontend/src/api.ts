@@ -2,11 +2,13 @@ import type {
   Book,
   Candle,
   HistoryPoint,
+  MarketEvent,
   Money,
   Order,
   PlaceOrderResult,
   Population,
   Portfolio,
+  ScenarioInfo,
   ShockResult,
   Side,
   SimState,
@@ -89,8 +91,14 @@ export const api = {
   simHistory: (symbol: string) =>
     request<HistoryPoint[]>(`/sim/history/${symbol}`),
   setPopulation: (p: Population) => request<SimState>("/sim/population", put(p)),
-  setControls: (c: { sentiment?: number; speed?: number; paused?: boolean }) =>
+  setControls: (c: { sentiment?: number; speed?: number; paused?: boolean; random_news?: boolean }) =>
     request<SimState>("/sim/controls", put(c)),
+  events: (symbol?: string) =>
+    request<MarketEvent[]>(`/sim/events?limit=20${symbol ? `&symbol=${symbol}` : ""}`),
+  news: (symbol: string, good: boolean) => request<MarketEvent>("/sim/news", post({ symbol, good })),
+  scenarios: () => request<ScenarioInfo[]>("/sim/scenarios"),
+  runScenario: (key: string, symbol: string) =>
+    request<SimState>("/sim/scenario", post({ key, symbol })),
   shock: (symbol: string, side: Side, quantity: number) =>
     request<ShockResult>("/sim/shock", post({ symbol, side, quantity })),
 };

@@ -5,6 +5,12 @@ export interface Point {
   v: number; // cents
 }
 
+/** A moment worth flagging on the chart, e.g. when a headline hit. */
+export interface Marker {
+  t: number;
+  tone: "up" | "down" | "accent";
+}
+
 interface Props {
   series: Point[];
   /** Optional second line, drawn dashed and quiet -- used for fair value. */
@@ -15,6 +21,7 @@ interface Props {
   /** Draw a dashed horizontal line here, e.g. where the period started. */
   baseline?: number;
   onScrub?: (p: Point | null) => void;
+  markers?: Marker[];
 }
 
 /**
@@ -44,6 +51,7 @@ export function PriceChart({
   colorBy = "direction",
   baseline,
   onScrub,
+  markers,
 }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -131,6 +139,18 @@ export function PriceChart({
           d={`${path(series)}L${x(series[series.length - 1].t).toFixed(1)},${height}L${x(series[0].t).toFixed(1)},${height}Z`}
           fill={`url(#${CSS.escape(gradId)})`} stroke="none"
         />
+        {(markers ?? [])
+          .filter((m) => m.t >= t0 && m.t <= t1)
+          .map((m, i) => {
+            const color = m.tone === "up" ? "var(--up)" : m.tone === "down" ? "var(--down)" : "var(--accent)";
+            return (
+              <g key={i}>
+                <line x1={x(m.t)} x2={x(m.t)} y1={6} y2={height} stroke={color}
+                      strokeWidth={1.25} strokeDasharray="3 4" opacity={0.7} />
+                <circle cx={x(m.t)} cy={6} r={4.5} fill={color} />
+              </g>
+            );
+          })}
         {baseline !== undefined && (
           <line
             x1={pad} x2={width - pad} y1={y(baseline)} y2={y(baseline)}
