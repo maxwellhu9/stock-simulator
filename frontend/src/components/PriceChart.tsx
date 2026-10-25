@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 export interface Point {
   t: number; // seconds
@@ -48,6 +48,7 @@ export function PriceChart({
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
   const [hover, setHover] = useState<number | null>(null);
+  const gradId = useId();
 
   useEffect(() => {
     if (!box.current) return;
@@ -120,6 +121,16 @@ export function PriceChart({
       }}
     >
       <svg width={width} height={height} style={{ display: "block", overflow: "visible" }}>
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" style={{ stopColor: stroke, stopOpacity: 0.16 }} />
+            <stop offset="100%" style={{ stopColor: stroke, stopOpacity: 0 }} />
+          </linearGradient>
+        </defs>
+        <path
+          d={`${path(series)}L${x(series[series.length - 1].t).toFixed(1)},${height}L${x(series[0].t).toFixed(1)},${height}Z`}
+          fill={`url(#${CSS.escape(gradId)})`} stroke="none"
+        />
         {baseline !== undefined && (
           <line
             x1={pad} x2={width - pad} y1={y(baseline)} y2={y(baseline)}

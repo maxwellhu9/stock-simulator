@@ -25,7 +25,7 @@ export function PortfolioView({ portfolio: p, orders, onCancel }: Props) {
   const past = orders.filter((o) => !LIVE.has(o.status)).slice(0, 15);
 
   return (
-    <div className="portfolio">
+    <div className="portfolio surface">
       <p className="note muted" style={{ margin: "0 0 6px" }}>Total value</p>
       <div className="price-big num">{p.total_value ? money(p.total_value.cents) : "—"}</div>
       <div className={`change num ${tone(gain)}`}>

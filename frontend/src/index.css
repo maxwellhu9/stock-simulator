@@ -1,24 +1,37 @@
 :root {
-  --bg: #ffffff;
-  --panel: #f5f6f7;
-  --line: #e7e9ec;
-  --ink: #0b0d0f;
-  --ink-2: #4f565e;
-  --ink-3: #8d949b;
+  /* Theme tokens. --page is behind everything, --card is the raised surface. */
+  --page: #eaeef8;
+  --card: #ffffff;
+  --bg: var(--card);
+  --panel: #f0f3fa;
+  --line: #dde3f0;
+  --ink: #111827;
+  --ink-2: #475569;
+  --ink-3: #8a94a6;
+  --accent: #2346d1;
+  --accent-ink: #ffffff;
   --up: #00a35c;
   --down: #e5484d;
-  --up-soft: #e6f6ee;
-  --down-soft: #fdeced;
-  --radius: 14px;
+  --up-soft: #e3f5ec;
+  --down-soft: #fdeaeb;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.05);
+  /* One colour per kind of bot. Never green or red -- those mean up and down. */
+  --c-value: #0ea5e9;
+  --c-momentum: #e08a1e;
+  --c-noise: #9aa3b2;
+  --c-maker: #8b5cf6;
+  --radius: 16px;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     Roboto, Helvetica, Arial, sans-serif;
   color: var(--ink);
-  background: var(--bg);
+  background: var(--page);
   -webkit-font-smoothing: antialiased;
 }
 
+
+
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); }
+body { margin: 0; background: var(--page); }
 button { font: inherit; color: inherit; }
 input { font: inherit; }
 .num { font-variant-numeric: tabular-nums; }
@@ -33,8 +46,8 @@ input { font: inherit; }
   position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; gap: 28px;
   height: 60px; padding: 0 24px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
 }
 .wordmark { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; }
@@ -45,7 +58,7 @@ input { font: inherit; }
   font-size: 15px; font-weight: 500; color: var(--ink-3);
 }
 .tab:hover { color: var(--ink); }
-.tab.on { color: var(--ink); background: var(--panel); }
+.tab.on { color: var(--accent-ink); background: var(--accent); }
 .who { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 14px; }
 .link {
   border: none; background: none; cursor: pointer; padding: 0;
@@ -76,7 +89,7 @@ main { padding: 32px 24px 80px; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-buy { background: var(--up); color: #fff; }
 .btn-sell { background: var(--down); color: #fff; }
-.btn-ink { background: var(--ink); color: #fff; }
+.btn-ink { background: var(--accent); color: var(--accent-ink); }
 .btn-quiet { background: var(--panel); color: var(--ink); }
 
 .field { display: block; margin-bottom: 16px; }
@@ -86,11 +99,11 @@ main { padding: 32px 24px 80px; }
   border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
   font-size: 17px; font-variant-numeric: tabular-nums;
 }
-.input:focus { outline: 2px solid var(--ink); outline-offset: -1px; border-color: transparent; }
+.input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 
 .note { font-size: 14px; color: var(--ink-2); line-height: 1.5; }
 .err {
-  background: var(--down-soft); color: #a3262b;
+  background: var(--down-soft); color: var(--down);
   padding: 10px 14px; border-radius: 10px; font-size: 14px; margin-bottom: 16px;
 }
 
@@ -105,10 +118,10 @@ main { padding: 32px 24px 80px; }
 .trade { max-width: 680px; margin: 0 auto; }
 .symbols { display: flex; gap: 8px; margin-bottom: 20px; }
 .chip {
-  border: 1px solid var(--line); background: var(--bg); cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer;
   padding: 6px 14px; border-radius: 999px; font-size: 14px; font-weight: 600;
 }
-.chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
 .price-big { font-size: 52px; font-weight: 640; letter-spacing: -0.035em; line-height: 1; }
 .change { font-size: 15px; font-weight: 500; margin-top: 10px; min-height: 20px; }
@@ -174,7 +187,7 @@ main { padding: 32px 24px 80px; }
 .stepper b { width: 26px; text-align: center; font-size: 15px; font-variant-numeric: tabular-nums; }
 
 .block { margin-bottom: 36px; }
-.slider { width: 100%; accent-color: var(--ink); margin: 8px 0 4px; }
+.slider { width: 100%; accent-color: var(--accent); margin: 8px 0 4px; }
 .slider-ends { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-3); }
 .shock-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
 .shock-buttons .btn { height: 44px; font-size: 15px; }
@@ -219,4 +232,32 @@ main { padding: 32px 24px 80px; }
      they cost more room than they are worth. */
   .table .wide { display: none; }
   .market-head h1 { font-size: 22px; width: 100%; }
+  .ranges { flex-wrap: wrap; gap: 10px; }
+}
+
+
+/* ---------- surfaces ---------- */
+
+.surface {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.trade.surface { padding: 28px 28px 24px; }
+.portfolio.surface { padding: 28px; }
+.market-grid > .surface { padding: 24px; }
+.stats div { background: var(--card); }
+.stats { background: var(--line); }
+
+/* ---------- bot colours ---------- */
+
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; flex: none; }
+.dot.value { background: var(--c-value); }
+.dot.momentum { background: var(--c-momentum); }
+.dot.noise { background: var(--c-noise); }
+.dot.maker { background: var(--c-maker); }
+.dot.you { background: var(--ink); }
+.dot.big { background: var(--down); }
+
+@media (max-width: 600px) {
+  .trade.surface, .portfolio.surface, .market-grid > .surface { padding: 18px; }
 }

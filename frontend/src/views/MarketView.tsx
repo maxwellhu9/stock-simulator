@@ -12,6 +12,13 @@ const CROWD: { key: keyof Population; name: string; desc: string; max: number }[
 ];
 const SIZES = [500, 1_500, 5_000];
 
+/** Which colour dot a trade side gets. */
+function kind(label: string | null, me: string): string {
+  if (label === me) return "you";
+  if (label === "big order") return "big";
+  return label && ["value", "momentum", "noise", "maker"].includes(label) ? label : "you";
+}
+
 interface Props {
   account: string;
   symbol: string;
@@ -106,7 +113,7 @@ export function MarketView({ account, symbol, symbols, onSymbol, book, trades }:
       {error && <div className="err" style={{ marginTop: 16 }}>{error}</div>}
 
       <div className="market-grid">
-        <div>
+        <div className="surface">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <div className="legend">
               <span><i />Price</span>
@@ -146,7 +153,10 @@ export function MarketView({ account, symbol, symbols, onSymbol, book, trades }:
                     : seller.charAt(0).toLowerCase() + seller.slice(1);
                 return (
                   <li key={t.id} className={buyer === "You" || seller === "You" ? "mine" : ""}>
-                    <span>{buyer} bought {t.quantity} from {from}</span>
+                    <span style={{ display: "flex", alignItems: "baseline" }}>
+                      <span className={`dot ${kind(t.buyer, account)}`} />
+                      <span>{buyer} bought {t.quantity} from {from}</span>
+                    </span>
                     <span className="num soft">{money(t.price.cents)}</span>
                   </li>
                 );
@@ -155,7 +165,7 @@ export function MarketView({ account, symbol, symbols, onSymbol, book, trades }:
           )}
         </div>
 
-        <div>
+        <div className="surface">
           <div className="block">
             <h3 className="section-title">The crowd</h3>
             {CROWD.map((c) => {
@@ -163,7 +173,7 @@ export function MarketView({ account, symbol, symbols, onSymbol, book, trades }:
               return (
                 <div className="crowd-row" key={c.key}>
                   <div className="what">
-                    <div className="name">{c.name}</div>
+                    <div className="name"><span className={`dot ${c.key}`} />{c.name}</div>
                     <div className="desc">{c.desc}</div>
                   </div>
                   <div className="stepper">

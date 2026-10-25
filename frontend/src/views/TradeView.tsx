@@ -55,7 +55,7 @@ export function TradeView({ symbol, symbols, onSymbol, last, book, portfolio, on
   const held = portfolio?.positions.find((p) => p.symbol === symbol);
 
   return (
-    <div className="trade">
+    <div className="trade surface">
       <div className="symbols">
         {symbols.map((s) => (
           <button key={s} className={`chip ${s === symbol ? "on" : ""}`} onClick={() => onSymbol(s)}>
