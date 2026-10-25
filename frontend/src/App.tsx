@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, api } from "./api";
+import { ApiError, DEMO, api } from "./api";
 import { OrderSheet } from "./components/OrderSheet";
 import type { MarketEvent, Order, Portfolio, Side } from "./types";
 import { useMarketSocket } from "./useMarketSocket";
@@ -178,7 +178,7 @@ function SignIn({ onSignIn }: { onSignIn: (name: string) => void }) {
       <h1>Exchange</h1>
       <p className="note">
         Practice trading against a market full of simulated traders. New names start
-        with $100,000.
+        with $100,000.{DEMO && " This version runs in your browser, so reloading starts a fresh market."}
       </p>
       {error && <div className="err">{error}</div>}
       <label className="field">

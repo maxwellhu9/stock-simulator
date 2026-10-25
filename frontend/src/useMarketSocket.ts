@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { DEMO } from "./api";
+import { subscribe } from "./demo/server";
 import type { Book, Money, Trade } from "./types";
 
 const WS_BASE =
@@ -30,6 +32,25 @@ export function useMarketSocket(symbol: string, onActivity?: () => void) {
     setTrades([]);
     setLast(null);
 
+    const handle = (msg: Message) => {
+      setBook(msg.book);
+      if (msg.type === "snapshot") {
+        setTrades(msg.trades);
+        if (msg.trades[0]) setLast(msg.trades[0].price);
+      } else {
+        if (msg.last) setLast(msg.last);
+        if (msg.trades.length) {
+          setTrades((prev) => [...[...msg.trades].reverse(), ...prev].slice(0, 40));
+        }
+      }
+      activity.current?.();
+    };
+
+    if (DEMO) {
+      setConnected(true);
+      return subscribe(symbol, handle);
+    }
+
     const open = () => {
       if (closed) return;
       ws = new WebSocket(`${WS_BASE}/ws/${symbol}`);
@@ -37,20 +58,7 @@ export function useMarketSocket(symbol: string, onActivity?: () => void) {
         attempts = 0;
         setConnected(true);
       };
-      ws.onmessage = (e) => {
-        const msg: Message = JSON.parse(e.data);
-        setBook(msg.book);
-        if (msg.type === "snapshot") {
-          setTrades(msg.trades);
-          if (msg.trades[0]) setLast(msg.trades[0].price);
-        } else {
-          if (msg.last) setLast(msg.last);
-          if (msg.trades.length) {
-            setTrades((prev) => [...[...msg.trades].reverse(), ...prev].slice(0, 40));
-          }
-        }
-        activity.current?.();
-      };
+      ws.onmessage = (e) => handle(JSON.parse(e.data));
       ws.onclose = () => {
         setConnected(false);
         if (closed) return;

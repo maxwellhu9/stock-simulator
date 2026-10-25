@@ -14,18 +14,15 @@ import type {
   SimState,
   Trade,
 } from "./types";
+import { ApiError } from "./apiError";
+import { demoApi } from "./demo/server";
+
+/** Built for GitHub Pages: the whole exchange runs in the browser instead. */
+export const DEMO = import.meta.env.VITE_DEMO === "1";
 
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8077";
 
-/** An error the server rejected us with, carrying its explanation. */
-export class ApiError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
+export { ApiError };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -60,7 +57,7 @@ const post = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-export const api = {
+const httpApi = {
   createAccount: (name: string, initial_cash: string) =>
     request<Portfolio>("/accounts", post({ name, initial_cash })),
   portfolio: (name: string) =>
@@ -102,3 +99,5 @@ export const api = {
   shock: (symbol: string, side: Side, quantity: number) =>
     request<ShockResult>("/sim/shock", post({ symbol, side, quantity })),
 };
+
+export const api: typeof httpApi = DEMO ? demoApi : httpApi;

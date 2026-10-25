@@ -5,6 +5,8 @@ whose orders decide the price. It has a real matching engine, accounts with cash
 that can run out, and a sandbox where you change who's in the market and watch
 what happens.
 
+**[Try it in your browser](https://maxwellhu9.github.io/stock-simulator/)**
+
 ![home](docs/home.png)
 
 Most trading projects I looked at are a price chart with a buy button. I wanted
@@ -194,6 +196,16 @@ Without Docker, if you have Postgres running:
 createdb paper_exchange && createdb paper_exchange_test
 cd backend && uv sync && uv run uvicorn app.main:app --port 8077 --reload
 cd frontend && npm install && npm run dev
+```
+
+The demo link is a different build of the same frontend. GitHub Pages can only
+serve static files, so the order book, accounts, bots and scenarios are ported
+to TypeScript in [`frontend/src/demo/`](frontend/src/demo) and run in the page
+instead of on a server. Nothing is saved, and a reload starts a new market.
+To run that version locally:
+
+```bash
+cd frontend && npm run dev:demo
 ```
 
 Tests:
