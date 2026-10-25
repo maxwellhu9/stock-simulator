@@ -21,7 +21,9 @@ from sqlmodel import Session, select
 
 from .db import create_tables, engine, get_session
 from .events import bus
-from .marketmaker import MarketMaker, fetch_real_prices
+from .pnl import cost_basis
+from .agents import Population
+from .market_sim import MarketSim, fetch_real_prices, last_traded
 from .exchange import (
     Exchange,
     ExchangeError,
@@ -33,6 +35,13 @@ from .models import Account, OrderRecord, Position, TradeRecord
 from .orderbook import OrderBook, Side
 from .schemas import (
     BookOut,
+    Candle,
+    ControlsIn,
+    PopulationIn,
+    ShockIn,
+    ShockOut,
+    SimStateOut,
+    SymbolState,
     CreateAccountRequest,
     DepositRequest,
     Level,
@@ -49,58 +58,147 @@ from .schemas import (
 _books: dict[str, OrderBook] = {}
 
 SYMBOLS = ["AAPL", "NVDA", "MSFT"]
-TICK_SECONDS = 3.0
-_maker: MarketMaker | None = None
+BASE_TICK_SECONDS = 1.0
+
+_sim: MarketSim | None = None
+_speed = 1.0
+_paused = False
+# Highest trade id already pushed to watchers, per symbol, so each update
+# carries only what is new.
+_published: dict[str, int] = {}
 
 
-async def _run_market_maker() -> None:
-    """Quote continuously so the book is never empty.
+async def _run_market() -> None:
+    """Let the agents trade, forever.
 
     Each tick runs in a worker thread because the exchange is synchronous --
     doing that work on the event loop would stall every WebSocket in the process
     for the duration.
     """
-    assert _maker is not None
+    assert _sim is not None
+    loop = asyncio.get_running_loop()
+    next_at = loop.time()
     while True:
         try:
-            for symbol in SYMBOLS:
-                await asyncio.to_thread(_tick_once, symbol)
+            if not _paused:
+                for symbol in SYMBOLS:
+                    await asyncio.to_thread(_tick_once, symbol)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # a quoting failure must not kill the loop
-            print(f"[market-maker] {type(exc).__name__}: {exc}")
-        await asyncio.sleep(TICK_SECONDS)
+        except Exception as exc:  # one bad tick must not stop the market
+            print(f"[market] {type(exc).__name__}: {exc}")
+
+        # Schedule against the clock rather than sleeping a full period after
+        # the work. Otherwise every cycle is one second PLUS however long the
+        # ticks took, and "1x" quietly runs about 30% slow.
+        next_at += BASE_TICK_SECONDS / _speed
+        delay = next_at - loop.time()
+        if delay < 0:
+            # Fell behind -- the work took longer than a period. Resume from
+            # now instead of firing a burst of back-to-back ticks to catch up.
+            next_at = loop.time()
+            delay = 0
+        await asyncio.sleep(delay)
 
 
 def _tick_once(symbol: str) -> None:
     with Session(engine) as session:
-        _maker.tick(session, symbol)
-        if bus.subscriber_count(symbol):
-            ex = Exchange(session, books=_books)
-            bus.publish(symbol, {
-                "type": "update",
-                "book": _book_payload(ex, symbol).model_dump(mode="json"),
-                "trades": [],
-            })
+        _sim.tick(session, symbol)
+        _publish_since_last(session, symbol)
+
+
+def _publish_since_last(session: Session, symbol: str) -> None:
+    """Push the current book plus any trades watchers have not seen yet."""
+    if bus.subscriber_count(symbol) == 0:
+        _published[symbol] = _latest_trade_id(session, symbol)
+        return
+    since = _published.get(symbol, 0)
+    new = session.exec(
+        select(TradeRecord)
+        .where(TradeRecord.symbol == symbol)
+        .where(TradeRecord.id > since)
+        .order_by(TradeRecord.id)
+    ).all()
+    if new:
+        _published[symbol] = new[-1].id
+    ex = Exchange(session, books=_books)
+    bus.publish(symbol, {
+        "type": "update",
+        "book": _book_payload(ex, symbol).model_dump(mode="json"),
+        # Capped: a fast market can print hundreds of trades between pushes,
+        # and the client only ever shows the most recent few.
+        "trades": [t.model_dump(mode="json")
+                   for t in _trades_out(session, new[-40:])],
+        "last": _money(_sim.last.get(symbol)) if _sim else None,
+    })
+
+
+def _latest_trade_id(session: Session, symbol: str) -> int:
+    t = session.exec(
+        select(TradeRecord).where(TradeRecord.symbol == symbol)
+        .order_by(TradeRecord.id.desc())
+    ).first()
+    return t.id if t else 0
+
+
+def _money(cents: int | None) -> dict | None:
+    return None if cents is None else Money.of(cents).model_dump()
+
+
+# Account names never change, so their display labels can be cached forever.
+_labels: dict[int, str] = {}
+
+
+def _label(session: Session, account_id: int) -> str:
+    """'sim:AAPL:momentum_3' -> 'momentum'. People keep their own names."""
+    if account_id not in _labels:
+        account = session.get(Account, account_id)
+        name = account.name if account else "?"
+        if name.startswith("sim:"):
+            kind = name.split(":")[-1].rsplit("_", 1)[0]
+            name = "big order" if kind == "shock" else kind
+        _labels[account_id] = name
+    return _labels[account_id]
+
+
+def _trades_out(session: Session, rows) -> list[TradeOut]:
+    return [TradeOut.of(t, buyer=_label(session, t.buyer_account_id),
+                        seller=_label(session, t.seller_account_id))
+            for t in rows]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _maker
+    global _sim
     create_tables()
     bus.bind_loop(asyncio.get_running_loop())
     with Session(engine) as session:
         restored = Exchange(session, books=_books).load_books()
     print(f"[startup] restored {restored} open orders into the books")
 
-    mids = await asyncio.to_thread(fetch_real_prices, SYMBOLS)
-    print("[startup] seed prices: "
-          + ", ".join(f"{s} {p/100:,.2f}" for s, p in mids.items()))
-    _maker = MarketMaker(_books, mids)
+    # Pick up where the market left off. Only a symbol that has never traded
+    # takes its starting price from the real one -- reseeding a market that
+    # already has a book and a history would open a gap between the two and
+    # set off a selloff (or rally) that nobody caused.
     with Session(engine) as session:
-        _maker.ensure_account(session)
+        seeds = last_traded(session, SYMBOLS)
+    fresh = [s for s in SYMBOLS if s not in seeds]
+    if fresh:
+        seeds.update(await asyncio.to_thread(fetch_real_prices, fresh))
+    print("[startup] prices: " + ", ".join(
+        f"{s} {seeds[s]/100:,.2f}{' (real)' if s in fresh else ''}" for s in SYMBOLS))
 
-    task = asyncio.create_task(_run_market_maker())
+    for symbol in SYMBOLS:
+        _books.setdefault(symbol, OrderBook(symbol))
+    _sim = MarketSim(_books, seeds)
+    with Session(engine) as session:
+        orphans = _sim.cancel_orphans(session)
+        print(f"[startup] cancelled {orphans} orders left by a previous run's agents")
+        _sim.ensure_accounts(session)
+        for symbol in SYMBOLS:
+            _published[symbol] = _latest_trade_id(session, symbol)
+
+    task = asyncio.create_task(_run_market())
     yield
     task.cancel()
     _books.clear()
@@ -193,14 +291,50 @@ def _portfolio(ex: Exchange, name: str) -> PortfolioOut:
     positions = ex.session.exec(
         select(Position).where(Position.account_id == account.id)
     ).all()
+    basis = cost_basis(ex.session, account.id)
+
+    out: list[PositionOut] = []
+    held_value = unrealized = 0
+    for p in positions:
+        if not (p.quantity or p.reserved_quantity):
+            continue
+        po = PositionOut.of(p)
+        last = _last_price(ex, p.symbol)
+        b = basis.get(p.symbol)
+        if last is not None:
+            value = last * p.quantity
+            po.last_price = Money.of(last)
+            po.market_value = Money.of(value)
+            held_value += value
+            if b and b.avg_cost is not None:
+                po.avg_cost = Money.of(b.avg_cost)
+                gain = value - b.cost_cents
+                po.unrealized_pnl = Money.of(gain)
+                unrealized += gain
+        out.append(po)
+
+    realized = sum(b.realized_cents for b in basis.values())
     return PortfolioOut(
         name=account.name,
         cash=Money.of(account.cash_cents),
         reserved=Money.of(account.reserved_cents),
         available=Money.of(account.available_cents),
-        positions=[PositionOut.of(p) for p in positions
-                   if p.quantity or p.reserved_quantity],
+        positions=out,
+        positions_value=Money.of(held_value),
+        total_value=Money.of(account.cash_cents + held_value),
+        unrealized_pnl=Money.of(unrealized),
+        realized_pnl=Money.of(realized),
     )
+
+
+def _last_price(ex: Exchange, symbol: str) -> int | None:
+    if _sim is not None and symbol in _sim.last:
+        return _sim.last[symbol]
+    t = ex.session.exec(
+        select(TradeRecord).where(TradeRecord.symbol == symbol)
+        .order_by(TradeRecord.id.desc())
+    ).first()
+    return t.price_cents if t else None
 
 
 # -- orders -----------------------------------------------------------------
@@ -215,8 +349,11 @@ def place_order(body: PlaceOrderRequest, ex: Exchange = Depends(get_exchange)):
         )
     except ExchangeError as exc:
         raise _http(exc) from exc
-    trades_out = [TradeOut.of(t) for t in trades]
-    _publish(ex, order.symbol, trades_out)
+    trades_out = _trades_out(ex.session, trades)
+    if _sim is not None:
+        for t in trades:
+            _sim.record_trade(order.symbol, t.price_cents)
+    _publish_since_last(ex.session, order.symbol)
     return PlaceOrderResponse(order=OrderOut.of(order), trades=trades_out)
 
 
@@ -226,19 +363,9 @@ def cancel_order(order_id: int, ex: Exchange = Depends(get_exchange)):
         record = ex.cancel_order(order_id)
     except ExchangeError as exc:
         raise _http(exc) from exc
-    _publish(ex, record.symbol, [])
+    _publish_since_last(ex.session, record.symbol)
     return OrderOut.of(record)
 
-
-def _publish(ex: Exchange, symbol: str, trades: list[TradeOut]) -> None:
-    """Tell every watcher of this symbol that the book moved."""
-    if bus.subscriber_count(symbol) == 0:
-        return
-    bus.publish(symbol, {
-        "type": "update",
-        "book": _book_payload(ex, symbol).model_dump(mode="json"),
-        "trades": [t.model_dump(mode="json") for t in trades],
-    })
 
 
 @app.get("/orders", response_model=list[OrderOut], tags=["orders"])
@@ -286,7 +413,7 @@ def get_trades(symbol: str, limit: int = Query(50, le=500),
     stmt = (select(TradeRecord)
             .where(TradeRecord.symbol == symbol.upper())
             .order_by(TradeRecord.id.desc()).limit(limit))
-    return [TradeOut.of(t) for t in ex.session.exec(stmt).all()]
+    return _trades_out(ex.session, ex.session.exec(stmt).all())
 
 
 @app.websocket("/ws/{symbol}")
@@ -308,7 +435,8 @@ async def market_socket(websocket: WebSocket, symbol: str):
             await websocket.send_json({
                 "type": "snapshot",
                 "book": _book_payload(ex, symbol).model_dump(mode="json"),
-                "trades": [TradeOut.of(t).model_dump(mode="json") for t in recent],
+                "trades": [t.model_dump(mode="json")
+                           for t in _trades_out(session, recent)],
             })
         while True:
             # We do not expect client messages; this await is how we notice a
@@ -322,12 +450,108 @@ async def market_socket(websocket: WebSocket, symbol: str):
 
 @app.get("/symbols", tags=["market"])
 def symbols():
-    """Which symbols are tradeable, and where the maker is quoting them."""
+    """Which symbols are tradeable, and their last traded price."""
     return [
-        {"symbol": s,
-         "mid": {"cents": _maker.mids[s], "display": f"{_maker.mids[s] / 100:,.2f}"}}
+        {"symbol": s, "mid": Money.of(_sim.last[s]).model_dump()}
         for s in SYMBOLS
-    ] if _maker else []
+    ] if _sim else []
+
+
+@app.get("/candles/{symbol}", response_model=list[Candle], tags=["market"])
+def candles(symbol: str, seconds: int = Query(5, ge=1, le=3600),
+            limit: int = Query(120, ge=1, le=600),
+            ex: Exchange = Depends(get_exchange)):
+    """Trades bucketed into fixed time windows, newest last."""
+    rows = ex.session.exec(
+        select(TradeRecord).where(TradeRecord.symbol == symbol.upper())
+        .order_by(TradeRecord.id.desc()).limit(limit * 60)
+    ).all()
+    buckets: dict[int, Candle] = {}
+    for t in reversed(rows):
+        start = int(t.created_at.timestamp()) // seconds * seconds
+        c = buckets.get(start)
+        if c is None:
+            buckets[start] = Candle(t=start, open=t.price_cents, high=t.price_cents,
+                                    low=t.price_cents, close=t.price_cents,
+                                    volume=t.quantity)
+        else:
+            c.high = max(c.high, t.price_cents)
+            c.low = min(c.low, t.price_cents)
+            c.close = t.price_cents
+            c.volume += t.quantity
+    return [buckets[k] for k in sorted(buckets)][-limit:]
+
+
+# -- sandbox controls -------------------------------------------------------
+
+
+def _sim_state() -> SimStateOut:
+    assert _sim is not None
+    p = _sim.population
+    return SimStateOut(
+        population=PopulationIn(value=p.value, momentum=p.momentum,
+                                noise=p.noise, maker=p.maker),
+        sentiment=_sim.sentiment, speed=_speed, paused=_paused,
+        symbols=[SymbolState(symbol=s, last=Money.of(_sim.last[s]),
+                             fair=Money.of(_sim.fair[s])) for s in SYMBOLS],
+    )
+
+
+@app.get("/sim", response_model=SimStateOut, tags=["sandbox"])
+def get_sim():
+    if _sim is None:
+        raise HTTPException(503, "market is still starting")
+    return _sim_state()
+
+
+@app.get("/sim/history/{symbol}", tags=["sandbox"])
+def sim_history(symbol: str):
+    """Price against fair value, one point per tick, oldest first."""
+    symbol = symbol.upper()
+    if _sim is None or symbol not in _sim.history:
+        raise HTTPException(404, f"no simulated market for {symbol}")
+    return [{"t": round(t, 2), "price": p, "fair": f} for t, p, f in _sim.history[symbol]]
+
+
+@app.put("/sim/population", response_model=SimStateOut, tags=["sandbox"])
+def set_population(body: PopulationIn, ex: Exchange = Depends(get_exchange)):
+    if _sim is None:
+        raise HTTPException(503, "market is still starting")
+    _sim.set_population(ex.session, Population(
+        value=body.value, momentum=body.momentum,
+        noise=body.noise, maker=body.maker,
+    ))
+    return _sim_state()
+
+
+@app.put("/sim/controls", response_model=SimStateOut, tags=["sandbox"])
+def set_controls(body: ControlsIn):
+    global _speed, _paused
+    if _sim is None:
+        raise HTTPException(503, "market is still starting")
+    if body.sentiment is not None:
+        _sim.sentiment = body.sentiment
+    if body.speed is not None:
+        _speed = body.speed
+    if body.paused is not None:
+        _paused = body.paused
+    return _sim_state()
+
+
+@app.post("/sim/shock", response_model=ShockOut, tags=["sandbox"])
+def shock(body: ShockIn, ex: Exchange = Depends(get_exchange)):
+    """Drop one huge market order into the book and report what it did."""
+    symbol = body.symbol.upper()
+    if _sim is None or symbol not in _sim.last:
+        raise HTTPException(404, f"no simulated market for {symbol}")
+    r = _sim.shock(ex.session, symbol, body.side, body.quantity)
+    _publish_since_last(ex.session, symbol)
+    return ShockOut(
+        side=body.side, requested=r.requested, filled=r.filled,
+        fill_rate=r.fill_rate, price_before=Money.of(r.mid_before),
+        avg_fill=Money.of(r.avg_fill), slippage_pct=r.slippage * 100,
+        orders_hit=r.orders_hit,
+    )
 
 
 @app.get("/health", tags=["market"])

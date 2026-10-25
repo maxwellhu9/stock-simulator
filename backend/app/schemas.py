@@ -102,6 +102,11 @@ class PositionOut(BaseModel):
     quantity: int
     reserved: int
     available: int
+    # Valuation. Absent when there is no price to value against yet.
+    avg_cost: Money | None = None
+    last_price: Money | None = None
+    market_value: Money | None = None
+    unrealized_pnl: Money | None = None
 
     @classmethod
     def of(cls, p: Position) -> "PositionOut":
@@ -115,6 +120,10 @@ class PortfolioOut(BaseModel):
     reserved: Money
     available: Money
     positions: list[PositionOut]
+    positions_value: Money | None = None
+    total_value: Money | None = None
+    unrealized_pnl: Money | None = None
+    realized_pnl: Money | None = None
 
 
 class OrderOut(BaseModel):
@@ -150,14 +159,19 @@ class TradeOut(BaseModel):
     buy_order_id: int
     sell_order_id: int
     created_at: datetime
+    # Who was on each side, as a display label: an agent's kind ("momentum")
+    # or a person's account name. Lets the feed say what actually happened.
+    buyer: str | None = None
+    seller: str | None = None
 
     @classmethod
-    def of(cls, t: TradeRecord) -> "TradeOut":
+    def of(cls, t: TradeRecord, buyer: str | None = None,
+           seller: str | None = None) -> "TradeOut":
         return cls(
             id=t.id, symbol=t.symbol, price=Money.of(t.price_cents),
             quantity=t.quantity, notional=Money.of(t.notional_cents),
             buy_order_id=t.buy_order_id, sell_order_id=t.sell_order_id,
-            created_at=t.created_at,
+            created_at=t.created_at, buyer=buyer, seller=seller,
         )
 
 
@@ -178,3 +192,65 @@ class BookOut(BaseModel):
     best_bid: Money | None
     best_ask: Money | None
     spread: Money | None
+
+
+# -- the simulated market ---------------------------------------------------
+
+
+class PopulationIn(BaseModel):
+    """How many of each kind of trader. Capped so nobody melts their laptop."""
+
+    value: int = Field(ge=0, le=30)
+    momentum: int = Field(ge=0, le=30)
+    noise: int = Field(ge=0, le=30)
+    maker: int = Field(ge=0, le=12)
+
+
+class ControlsIn(BaseModel):
+    # -1 everyone thinks it is overpriced, +1 everyone thinks it is cheap.
+    sentiment: float | None = Field(default=None, ge=-1.0, le=1.0)
+    speed: float | None = Field(default=None, ge=0.25, le=4.0)
+    paused: bool | None = None
+
+
+class ShockIn(BaseModel):
+    symbol: str
+    side: Side
+    quantity: int = Field(gt=0, le=1_000_000)
+
+
+class ShockOut(BaseModel):
+    side: Side
+    requested: int
+    filled: int
+    fill_rate: float
+    price_before: Money
+    avg_fill: Money
+    slippage_pct: float
+    orders_hit: int
+
+
+class SymbolState(BaseModel):
+    symbol: str
+    last: Money
+    # The value the market drifts around. Hidden from the agents themselves --
+    # value traders only see their own noisy estimate of it. Shown here because
+    # comparing price to it is the whole point of the sandbox.
+    fair: Money
+
+
+class SimStateOut(BaseModel):
+    population: PopulationIn
+    sentiment: float
+    speed: float
+    paused: bool
+    symbols: list[SymbolState]
+
+
+class Candle(BaseModel):
+    t: int  # bucket start, unix seconds
+    open: int
+    high: int
+    low: int
+    close: int
+    volume: int
