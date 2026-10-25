@@ -152,17 +152,27 @@ class MomentumTrader(Agent):
         # buying pressure runs out once everyone is fully loaded, and the value
         # traders pull the price back. That is the difference between a boom
         # that busts and a price that runs off to infinity.
-        self.max_position = random.randint(150, 400)
+        self.max_position = random.randint(80, 200)
 
     def act(self, state: MarketState, book: OrderBook) -> list[Intent]:
         window = state.tick_prices[-(self.lookback + 1):]
         if len(window) < self.lookback + 1 or not window[0]:
             return []
         m = (window[-1] - window[0]) / window[0]
-        if abs(m) < self.threshold:
-            return []
         if state.best_ask is None or state.best_bid is None:
             return []
+        if abs(m) < self.threshold:
+            # The trend has faded. A real trend-follower takes profit here
+            # rather than sitting on a full position until the price turns --
+            # otherwise every momentum bot dumps everything on the first dip,
+            # flipping from fully long to fully short at once, and the market
+            # rocks back and forth in big regular waves.
+            if abs(self.inventory) < 10:
+                return []
+            size = min(abs(self.inventory) // 4 + 1, 40)
+            if self.inventory > 0:
+                return [Intent(Side.SELL, size, state.best_bid, self.name)]
+            return [Intent(Side.BUY, size, state.best_ask, self.name)]
 
         size = int(min(abs(m) * 5000, 40) * self.aggression)
         room = (self.max_position - self.inventory if m > 0
