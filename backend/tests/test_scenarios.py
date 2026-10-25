@@ -65,6 +65,18 @@ def test_flash_crash_runs_in_order_then_restores(session, sim):
     assert sim.events[-1].headline == "Things calm down"
 
 
+def test_flash_crash_seller_trades_far_below_the_old_price(session, sim):
+    """Regression: a plain market order ran out of book a fraction of a percent
+    down, so the "crash" was invisible. The seller now sells down to a floor."""
+    t0 = 1_500_000.0
+    before = sim.last["X"]
+    sim.start_scenario(session, "flash_crash", "X", now=t0)
+    sim.run_due(session, now=t0 + 2.5)
+    sim.tick(session, "X")
+    low = min(p for _, p, _ in list(sim.history["X"])[-2:])
+    assert low < before * 0.96
+
+
 def test_bubble_restores_the_crowd_and_mood_afterwards(session, sim):
     t0 = 2_000_000.0
     sim.start_scenario(session, "bubble", "X", now=t0)

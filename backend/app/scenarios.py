@@ -102,9 +102,13 @@ def _news(good: bool) -> Callable[["MarketSim", "Session", str], None]:
     return run
 
 
-def _sell(qty: int) -> Callable[["MarketSim", "Session", str], None]:
+def _sell(qty: int, floor: float) -> Callable[["MarketSim", "Session", str], None]:
+    # Sells down to `floor` below the market rather than at any price. Once the
+    # bids are gone the rest sits there, and buyers trade against it far below
+    # the last price -- which is what a flash crash actually is. A plain market
+    # order would just stop when the book ran out, a fraction of a percent down.
     def run(sim: "MarketSim", session: "Session", symbol: str) -> None:
-        sim.shock(session, symbol, Side.SELL, qty)
+        sim.shock(session, symbol, Side.SELL, qty, floor=floor)
     return run
 
 
@@ -125,7 +129,7 @@ SCENARIOS: dict[str, Scenario] = {s.key: s for s in [
         duration=15,
         steps=(
             Step(0, _crowd(maker=0), "Market makers pull their quotes"),
-            Step(2, _sell(3_000), "A huge seller hits the book"),
+            Step(2, _sell(3_000, 0.06), "A huge seller hits the book"),
         ),
     ),
     Scenario(

@@ -341,8 +341,12 @@ class MarketSim:
             self.calm(session, now)
 
     def shock(self, session: Session, symbol: str, side: Side,
-              quantity: int) -> ShockResult:
-        """Drop a large market order in and see what the book does."""
+              quantity: int, floor: float = 0.0) -> ShockResult:
+        """Drop a large order in and see what the book does.
+
+        `floor` 0 means a market order. Otherwise it is a limit that far through
+        the price, and whatever does not fill rests until it expires.
+        """
         ex = Exchange(session, books=self.books)
         shocker = account_name(symbol, "shock")
         try:
@@ -364,8 +368,13 @@ class MarketSim:
         else:
             mid = self.last[symbol]
 
+        limit = None
+        if floor:
+            limit = int(mid * (1 - floor if side is Side.SELL else 1 + floor))
         try:
-            _, trades = ex.place_order(shocker, symbol, side, quantity, None)
+            record, trades = ex.place_order(shocker, symbol, side, quantity, limit)
+            if limit is not None and record.remaining > 0:
+                self._working[symbol].append((record.id, self.ticks[symbol]))
         except ExchangeError:
             trades = []
 
