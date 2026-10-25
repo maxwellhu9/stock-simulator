@@ -5,7 +5,7 @@ whose orders decide the price. It has a real matching engine, accounts with cash
 that can run out, and a sandbox where you change who's in the market and watch
 what happens.
 
-![the market tab](docs/market.png)
+![home](docs/home.png)
 
 Most trading projects I looked at are a price chart with a buy button. I wanted
 to build the part underneath: the thing that decides who trades with whom, at
@@ -109,7 +109,16 @@ the market makers and the spread more than doubles and the price gets jumpy.
 Remove the value traders and nobody knows what the stock is worth anymore, so the
 price goes quiet and stops following fair value at all.
 
-The sandbox also has a button that drops one huge market order in. A 500-share
+![the market lab](docs/market.png)
+
+The market lab also has news and scenarios. A headline changes what a stock is
+worth all at once, and you watch the bots trade their way to the new price.
+Scenarios script a few seconds of chaos and then put things back: a bubble, a
+flash crash where the market makers pull out before a big seller hits, or a
+panic. Random headlines fire about once a minute so the market keeps moving on
+its own. The headlines are made up and labeled as simulated.
+
+There's also a button that drops one huge market order in. A 500-share
 sell fills completely and barely moves the price. A 5,000-share sell only fills
 20% of the way before the book runs out of buyers — and a few seconds later the
 momentum traders have followed it down.
