@@ -327,3 +327,46 @@ def test_sim_history_pairs_price_with_fair_value(sim_client):
     assert len(points) == 15  # one per tick the fixture ran
     assert all(p["price"] > 0 and p["fair"] > 0 for p in points)
     assert points == sorted(points, key=lambda p: p["t"])
+
+
+def test_news_scenarios_and_events_over_http(sim_client):
+    import app.main as main
+    main._sim.random_news = False
+
+    r = sim_client.post("/sim/news", json={"symbol": "sim", "good": False})
+    assert r.status_code == 200 and r.json()["impact_pct"] < 0
+
+    keys = {s["key"] for s in sim_client.get("/sim/scenarios").json()}
+    assert {"bubble", "flash_crash", "panic"} <= keys
+
+    state = sim_client.post("/sim/scenario", json={"key": "bubble", "symbol": "SIM"}).json()
+    assert state["scenario"]["name"] == "Bubble"
+    assert state["population"]["momentum"] == 20
+
+    state = sim_client.post("/sim/scenario", json={"key": "calm", "symbol": "SIM"}).json()
+    assert state["scenario"] is None
+
+    headlines = [e["headline"] for e in sim_client.get("/sim/events", params={"symbol": "SIM"}).json()]
+    assert headlines[0] == "Things calm down"
+    assert "Bubble begins" in headlines
+
+    assert sim_client.post("/sim/scenario", json={"key": "moon", "symbol": "SIM"}).status_code == 404
+
+
+def test_candles_never_reach_outside_the_requested_window(sim_client):
+    """A restart must not fill "the past 5 minutes" with yesterday's trades."""
+    import time
+    from datetime import datetime, timedelta
+
+    from sqlmodel import Session, create_engine, select
+
+    from app.models import TradeRecord
+
+    engine = create_engine(TEST_URL)
+    with Session(engine) as s:
+        old = s.exec(select(TradeRecord).where(TradeRecord.symbol == "SIM")).first()
+        old.created_at = datetime.now() - timedelta(hours=10)
+        s.commit()
+
+    candles = sim_client.get("/candles/SIM", params={"seconds": 5, "limit": 60}).json()
+    assert candles and min(c["t"] for c in candles) >= time.time() - 5 * 60 - 5

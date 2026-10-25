@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -33,8 +34,14 @@ from .exchange import (
 )
 from .models import Account, OrderRecord, Position, TradeRecord
 from .orderbook import OrderBook, Side
+from .scenarios import SCENARIOS
 from .schemas import (
     BookOut,
+    EventOut,
+    NewsIn,
+    RunningScenario,
+    ScenarioIn,
+    ScenarioOut,
     Candle,
     ControlsIn,
     PopulationIn,
@@ -81,6 +88,7 @@ async def _run_market() -> None:
     while True:
         try:
             if not _paused:
+                await asyncio.to_thread(_run_scenario_steps)
                 for symbol in SYMBOLS:
                     await asyncio.to_thread(_tick_once, symbol)
         except asyncio.CancelledError:
@@ -99,6 +107,11 @@ async def _run_market() -> None:
             next_at = loop.time()
             delay = 0
         await asyncio.sleep(delay)
+
+
+def _run_scenario_steps() -> None:
+    with Session(engine) as session:
+        _sim.run_due(session)
 
 
 def _tick_once(symbol: str) -> None:
@@ -466,8 +479,14 @@ def candles(symbol: str, seconds: int = Query(5, ge=1, le=3600),
         select(TradeRecord).where(TradeRecord.symbol == symbol.upper())
         .order_by(TradeRecord.id.desc()).limit(limit * 60)
     ).all()
+    # Only the window the caller asked for. Without this, a market that just
+    # restarted fills "the past 5 minutes" with buckets from hours earlier,
+    # and the chart draws the overnight gap as one long flat line.
+    cutoff = time.time() - seconds * limit
     buckets: dict[int, Candle] = {}
     for t in reversed(rows):
+        if t.created_at.timestamp() < cutoff:
+            continue
         start = int(t.created_at.timestamp()) // seconds * seconds
         c = buckets.get(start)
         if c is None:
@@ -492,6 +511,11 @@ def _sim_state() -> SimStateOut:
         population=PopulationIn(value=p.value, momentum=p.momentum,
                                 noise=p.noise, maker=p.maker),
         sentiment=_sim.sentiment, speed=_speed, paused=_paused,
+        random_news=_sim.random_news,
+        scenario=None if _sim.scenario is None else RunningScenario(
+            key=_sim.scenario[0], name=_sim.scenario[1],
+            ends_in=max(0.0, _sim.scenario[2] - time.time()),
+        ),
         symbols=[SymbolState(symbol=s, last=Money.of(_sim.last[s]),
                              fair=Money.of(_sim.fair[s])) for s in SYMBOLS],
     )
@@ -535,6 +559,51 @@ def set_controls(body: ControlsIn):
         _speed = body.speed
     if body.paused is not None:
         _paused = body.paused
+    if body.random_news is not None:
+        _sim.random_news = body.random_news
+    return _sim_state()
+
+
+@app.get("/sim/events", response_model=list[EventOut], tags=["sandbox"])
+def sim_events(symbol: str | None = None, limit: int = Query(20, ge=1, le=60)):
+    """Recent news and scenario steps, newest first. Market-wide events always show."""
+    if _sim is None:
+        return []
+    sym = symbol.upper() if symbol else None
+    rows = [e for e in reversed(_sim.events)
+            if sym is None or e.symbol is None or e.symbol == sym]
+    return [EventOut(t=e.t, symbol=e.symbol, kind=e.kind, headline=e.headline,
+                     impact_pct=e.impact * 100) for e in rows[:limit]]
+
+
+@app.post("/sim/news", response_model=EventOut, tags=["sandbox"])
+def post_news(body: NewsIn):
+    symbol = body.symbol.upper()
+    if _sim is None or symbol not in _sim.fair:
+        raise HTTPException(404, f"no simulated market for {symbol}")
+    e = _sim.news(symbol, good=body.good)
+    return EventOut(t=e.t, symbol=e.symbol, kind=e.kind, headline=e.headline,
+                    impact_pct=e.impact * 100)
+
+
+@app.get("/sim/scenarios", response_model=list[ScenarioOut], tags=["sandbox"])
+def list_scenarios():
+    return [ScenarioOut(key=s.key, name=s.name, description=s.description,
+                        seconds=int(s.duration)) for s in SCENARIOS.values()]
+
+
+@app.post("/sim/scenario", response_model=SimStateOut, tags=["sandbox"])
+def run_scenario(body: ScenarioIn, ex: Exchange = Depends(get_exchange)):
+    symbol = body.symbol.upper()
+    if _sim is None or symbol not in _sim.fair:
+        raise HTTPException(404, f"no simulated market for {symbol}")
+    if body.key == "calm":
+        _sim.calm(ex.session)
+    elif body.key in SCENARIOS:
+        _sim.start_scenario(ex.session, body.key, symbol)
+    else:
+        raise HTTPException(404, f"no scenario {body.key!r}")
+    _publish_since_last(ex.session, symbol)
     return _sim_state()
 
 

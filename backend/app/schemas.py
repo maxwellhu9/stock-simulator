@@ -209,6 +209,7 @@ class PopulationIn(BaseModel):
 class ControlsIn(BaseModel):
     # -1 everyone thinks it is overpriced, +1 everyone thinks it is cheap.
     sentiment: float | None = Field(default=None, ge=-1.0, le=1.0)
+    random_news: bool | None = None
     speed: float | None = Field(default=None, ge=0.25, le=4.0)
     paused: bool | None = None
 
@@ -245,6 +246,8 @@ class SimStateOut(BaseModel):
     speed: float
     paused: bool
     symbols: list[SymbolState]
+    random_news: bool = True
+    scenario: "RunningScenario | None" = None
 
 
 class Candle(BaseModel):
@@ -254,3 +257,40 @@ class Candle(BaseModel):
     low: int
     close: int
     volume: int
+
+
+# -- news and scenarios -----------------------------------------------------
+
+
+class EventOut(BaseModel):
+    t: float
+    symbol: str | None
+    kind: str           # "good", "bad" or "scenario"
+    headline: str
+    impact_pct: float
+
+
+class NewsIn(BaseModel):
+    symbol: str
+    good: bool
+
+
+class ScenarioIn(BaseModel):
+    key: str            # a scenario key, or "calm" to stop everything
+    symbol: str
+
+
+class ScenarioOut(BaseModel):
+    key: str
+    name: str
+    description: str
+    seconds: int
+
+
+class RunningScenario(BaseModel):
+    key: str
+    name: str
+    ends_in: float
+
+
+SimStateOut.model_rebuild()

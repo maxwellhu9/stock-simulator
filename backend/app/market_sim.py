@@ -35,6 +35,7 @@ from .agents import (
 from .exchange import Exchange, ExchangeError
 from .models import Account, OrderRecord, OrderStatus, Position, TradeRecord
 from .orderbook import OrderBook, Side
+from .scenarios import SCENARIOS, MarketEvent, Step, draw_news
 
 # Agent accounts are namespaced so they can never collide with a real user.
 PREFIX = "sim"
@@ -47,6 +48,7 @@ RECENT_WINDOW = 12          # trades the momentum traders can see
 ACT_FRACTION = 0.55         # share of agents that act on any given tick
 ORDER_TTL = 8               # ticks before an unfilled agent order is pulled
 HISTORY = 900               # (time, price, fair) samples kept per symbol
+NEWS_CHANCE = 1 / 150       # per symbol per tick: about one headline a minute overall
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,13 @@ class MarketSim:
         self.history: dict[str, deque[tuple[float, int, int]]] = {
             s: deque(maxlen=HISTORY) for s in fair
         }
+        self.events: deque[MarketEvent] = deque(maxlen=60)
+        self.random_news = True
+        # A running scenario: its pending steps, when it ends, and what to put
+        # back afterwards.
+        self.scenario: tuple[str, str, float] | None = None   # key, name, ends_at
+        self._plan: list[tuple[float, Step, str]] = []
+        self._restore: tuple[Population, float] | None = None
 
     # -- setup --------------------------------------------------------------
 
@@ -194,7 +203,16 @@ class MarketSim:
         return len(stale)
 
     def set_population(self, session: Session, pop: Population) -> None:
-        """Rebuild the agent roster. Existing resting orders stay on the book."""
+        """Replace the crowd, pulling the old crowd's orders first.
+
+        Bots track their own resting orders, so rebuilding them throws that
+        record away. Without cancelling first, the old makers' quotes would
+        sit on the book forever -- and "the market makers leave" would leave
+        their quotes behind.
+        """
+        self.cancel_orphans(session)
+        for symbol in self._working:
+            self._working[symbol] = []
         self.population = pop
         self.agents = {
             s: build_population(pop, self.fair[s]) for s in self.agents
@@ -223,6 +241,9 @@ class MarketSim:
         state = self.observe(symbol)
 
         self._drift_fair(symbol)
+        # Not during a scenario: random news would fight the one you asked for.
+        if self.random_news and self.scenario is None and random.random() < NEWS_CHANCE:
+            self.news(symbol)
 
         agents = self.agents[symbol]
         makers = [a for a in agents if isinstance(a, MarketMakerAgent)]
@@ -269,6 +290,55 @@ class MarketSim:
         self.trades_this_tick = printed
         self.history[symbol].append((time.time(), self.last[symbol], self.fair[symbol]))
         return printed
+
+    # -- news and scenarios ------------------------------------------------
+
+    def news(self, symbol: str, good: bool | None = None) -> MarketEvent:
+        """A headline that changes what the stock is worth, all at once."""
+        if good is None:
+            good = random.random() < 0.5
+        recent = {e.headline for e in list(self.events)[-12:] if e.symbol == symbol}
+        headline, move = draw_news(good, avoid=recent)
+        self.fair[symbol] = max(100, int(self.fair[symbol] * (1.0 + move)))
+        event = MarketEvent(time.time(), symbol, "good" if good else "bad", headline, move)
+        self.events.append(event)
+        return event
+
+    def start_scenario(self, session: Session, key: str, symbol: str,
+                       now: float | None = None) -> None:
+        if key not in SCENARIOS:
+            raise KeyError(key)
+        now = time.time() if now is None else now
+        if self._restore is None:
+            self._restore = (self.population, self.sentiment)
+        sc = SCENARIOS[key]
+        self.scenario = (sc.key, sc.name, now + sc.duration)
+        self._plan = sorted(((now + st.after, st, symbol) for st in sc.steps),
+                            key=lambda x: x[0])
+        self.events.append(MarketEvent(now, None, "scenario", f"{sc.name} begins"))
+        self.run_due(session, now)
+
+    def calm(self, session: Session, now: float | None = None) -> None:
+        """Stop any scenario and put the market back to normal."""
+        now = time.time() if now is None else now
+        self._plan = []
+        self.scenario = None
+        pop, mood = self._restore or (Population(), 0.0)
+        self._restore = None
+        self.sentiment = 0.0 if mood is None else mood
+        self.set_population(session, pop)
+        self.events.append(MarketEvent(now, None, "scenario", "Things calm down"))
+
+    def run_due(self, session: Session, now: float | None = None) -> None:
+        """Fire any scenario steps whose time has come; end it when it is over."""
+        now = time.time() if now is None else now
+        while self._plan and self._plan[0][0] <= now:
+            _, step, symbol = self._plan.pop(0)
+            step.run(self, session, symbol)
+            if step.log:
+                self.events.append(MarketEvent(now, symbol, "scenario", step.log))
+        if self.scenario is not None and now >= self.scenario[2] and not self._plan:
+            self.calm(session, now)
 
     def shock(self, session: Session, symbol: str, side: Side,
               quantity: int) -> ShockResult:
