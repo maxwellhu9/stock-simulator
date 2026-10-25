@@ -1,21 +1,21 @@
 import type {
   Book,
+  Candle,
+  HistoryPoint,
+  Money,
   Order,
   PlaceOrderResult,
+  Population,
   Portfolio,
+  ShockResult,
   Side,
-  SymbolInfo,
+  SimState,
   Trade,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8077";
 
-/** Errors the server rejected us with, carrying its explanation.
- *
- *  Written with an explicit field rather than a constructor parameter property
- *  (`constructor(readonly status: number)`), because that is TypeScript-only
- *  syntax that has to be compiled away -- and this project builds with
- *  `erasableSyntaxOnly`, which permits only types that vanish on erasure. */
+/** An error the server rejected us with, carrying its explanation. */
 export class ApiError extends Error {
   status: number;
 
@@ -30,13 +30,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
-
   if (!res.ok) {
     let detail = res.statusText;
     try {
       const body = await res.json();
-      // Business errors send a string; validation errors send a list of
-      // field-level problems. Flatten both into one readable line.
       detail = Array.isArray(body.detail)
         ? body.detail
             .map((e: { loc: string[]; msg: string }) =>
@@ -45,28 +42,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
             .join("; ")
         : (body.detail ?? detail);
     } catch {
-      /* response had no JSON body */
+      /* no JSON body */
     }
     throw new ApiError(res.status, detail);
   }
   return res.json() as Promise<T>;
 }
 
+const put = (body: unknown): RequestInit => ({
+  method: "PUT",
+  body: JSON.stringify(body),
+});
+const post = (body: unknown): RequestInit => ({
+  method: "POST",
+  body: JSON.stringify(body),
+});
+
 export const api = {
   createAccount: (name: string, initial_cash: string) =>
-    request<Portfolio>("/accounts", {
-      method: "POST",
-      body: JSON.stringify({ name, initial_cash }),
-    }),
-
+    request<Portfolio>("/accounts", post({ name, initial_cash })),
   portfolio: (name: string) =>
     request<Portfolio>(`/accounts/${encodeURIComponent(name)}`),
-
-  deposit: (name: string, amount: string) =>
-    request<Portfolio>(`/accounts/${encodeURIComponent(name)}/deposit`, {
-      method: "POST",
-      body: JSON.stringify({ amount }),
-    }),
 
   placeOrder: (body: {
     account: string;
@@ -74,27 +70,27 @@ export const api = {
     side: Side;
     quantity: number;
     limit_price: string | null;
-  }) =>
-    request<PlaceOrderResult>("/orders", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-
+  }) => request<PlaceOrderResult>("/orders", post(body)),
   cancelOrder: (id: number) =>
     request<Order>(`/orders/${id}`, { method: "DELETE" }),
+  orders: (account: string) =>
+    request<Order[]>(`/orders?account=${encodeURIComponent(account)}&limit=100`),
 
-  orders: (account?: string, symbol?: string) => {
-    const q = new URLSearchParams();
-    if (account) q.set("account", account);
-    if (symbol) q.set("symbol", symbol);
-    return request<Order[]>(`/orders?${q}`);
-  },
-
-  book: (symbol: string, levels = 8) =>
-    request<Book>(`/book/${encodeURIComponent(symbol)}?levels=${levels}`),
-
-  symbols: () => request<SymbolInfo[]>("/symbols"),
-
+  book: (symbol: string, levels = 6) =>
+    request<Book>(`/book/${symbol}?levels=${levels}`),
   trades: (symbol: string, limit = 20) =>
-    request<Trade[]>(`/trades/${encodeURIComponent(symbol)}?limit=${limit}`),
+    request<Trade[]>(`/trades/${symbol}?limit=${limit}`),
+  candles: (symbol: string, seconds: number, limit: number) =>
+    request<Candle[]>(`/candles/${symbol}?seconds=${seconds}&limit=${limit}`),
+
+  symbols: () => request<{ symbol: string; mid: Money }[]>("/symbols"),
+
+  sim: () => request<SimState>("/sim"),
+  simHistory: (symbol: string) =>
+    request<HistoryPoint[]>(`/sim/history/${symbol}`),
+  setPopulation: (p: Population) => request<SimState>("/sim/population", put(p)),
+  setControls: (c: { sentiment?: number; speed?: number; paused?: boolean }) =>
+    request<SimState>("/sim/controls", put(c)),
+  shock: (symbol: string, side: Side, quantity: number) =>
+    request<ShockResult>("/sim/shock", post({ symbol, side, quantity })),
 };
