@@ -47,6 +47,16 @@ const GOOD_NEWS: [string, number, number][] = [
   ["Analysts upgrade the stock", 0.01, 0.02],
   ["Wins a major long-term contract", 0.018, 0.035],
   ["Announces a large share buyback", 0.01, 0.02],
+  ["Raises its full-year forecast", 0.015, 0.03],
+  ["Revenue grows faster than expected", 0.015, 0.03],
+  ["Signs a partnership with a major retailer", 0.01, 0.022],
+  ["Raises its dividend", 0.008, 0.015],
+  ["Opens a new factory ahead of schedule", 0.008, 0.018],
+  ["Gets approval for a new product", 0.015, 0.03],
+  ["Reports record holiday sales", 0.012, 0.025],
+  ["Cuts costs faster than planned", 0.01, 0.02],
+  ["A large fund discloses a new stake", 0.008, 0.016],
+  ["Settles a long-running lawsuit", 0.01, 0.02],
 ];
 const BAD_NEWS: [string, number, number][] = [
   ["Earnings miss expectations", 0.025, 0.045],
@@ -54,6 +64,16 @@ const BAD_NEWS: [string, number, number][] = [
   ["Regulators open an investigation", 0.02, 0.04],
   ["Announces a product recall", 0.015, 0.03],
   ["Analysts downgrade the stock", 0.01, 0.02],
+  ["Cuts its full-year forecast", 0.02, 0.04],
+  ["Loses a major customer", 0.015, 0.03],
+  ["Factory shutdown delays shipments", 0.012, 0.025],
+  ["Discloses a data breach", 0.015, 0.03],
+  ["Supplier problems squeeze margins", 0.01, 0.022],
+  ["Delays a key product launch", 0.012, 0.025],
+  ["Sued in a patent dispute", 0.01, 0.02],
+  ["A large fund sells its whole stake", 0.008, 0.016],
+  ["Sales slow in its biggest market", 0.012, 0.025],
+  ["Credit rating is downgraded", 0.01, 0.02],
 ];
 
 function drawNews(good: boolean, avoid: Set<string>): [string, number] {

@@ -44,6 +44,16 @@ GOOD_NEWS = [
     ("Analysts upgrade the stock", 0.010, 0.020),
     ("Wins a major long-term contract", 0.018, 0.035),
     ("Announces a large share buyback", 0.010, 0.020),
+    ("Raises its full-year forecast", 0.015, 0.030),
+    ("Revenue grows faster than expected", 0.015, 0.030),
+    ("Signs a partnership with a major retailer", 0.010, 0.022),
+    ("Raises its dividend", 0.008, 0.015),
+    ("Opens a new factory ahead of schedule", 0.008, 0.018),
+    ("Gets approval for a new product", 0.015, 0.030),
+    ("Reports record holiday sales", 0.012, 0.025),
+    ("Cuts costs faster than planned", 0.010, 0.020),
+    ("A large fund discloses a new stake", 0.008, 0.016),
+    ("Settles a long-running lawsuit", 0.010, 0.020),
 ]
 BAD_NEWS = [
     ("Earnings miss expectations", 0.025, 0.045),
@@ -51,6 +61,16 @@ BAD_NEWS = [
     ("Regulators open an investigation", 0.020, 0.040),
     ("Announces a product recall", 0.015, 0.030),
     ("Analysts downgrade the stock", 0.010, 0.020),
+    ("Cuts its full-year forecast", 0.020, 0.040),
+    ("Loses a major customer", 0.015, 0.030),
+    ("Factory shutdown delays shipments", 0.012, 0.025),
+    ("Discloses a data breach", 0.015, 0.030),
+    ("Supplier problems squeeze margins", 0.010, 0.022),
+    ("Delays a key product launch", 0.012, 0.025),
+    ("Sued in a patent dispute", 0.010, 0.020),
+    ("A large fund sells its whole stake", 0.008, 0.016),
+    ("Sales slow in its biggest market", 0.012, 0.025),
+    ("Credit rating is downgraded", 0.010, 0.020),
 ]
 
 
