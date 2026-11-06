@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../api";
 import { Headline } from "../components/Headline";
-import { OrderBook } from "../components/OrderBook";
 import { PriceChart } from "../components/PriceChart";
 import { money, who } from "../format";
 import { stockColor } from "../symbols";
 import type {
-  Book, HistoryPoint, MarketEvent, Population, ScenarioInfo, ShockResult, Side, SimState, Trade,
+  HistoryPoint, MarketEvent, Population, ScenarioInfo, ShockResult, Side, SimState, Trade,
 } from "../types";
 
 const CROWD: { key: keyof Population; name: string; desc: string; max: number }[] = [
@@ -29,13 +28,12 @@ interface Props {
   symbol: string;
   symbols: string[];
   onSymbol: (s: string) => void;
-  book: Book | null;
   trades: Trade[];
   events: MarketEvent[];
   onEvent: () => void;
 }
 
-export function MarketView({ account, symbol, symbols, onSymbol, book, trades, events, onEvent }: Props) {
+export function MarketView({ account, symbol, symbols, onSymbol, trades, events, onEvent }: Props) {
   const [sim, setSim] = useState<SimState | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [mood, setMood] = useState(0);
@@ -248,7 +246,7 @@ export function MarketView({ account, symbol, symbols, onSymbol, book, trades, e
           {shock && <ShockOutcome r={shock} />}
         </div>
 
-        <div className="card span-8 stretch">
+        <div className="card span-12">
           <h2 className="card-title">Latest trades</h2>
           {trades.length === 0 ? (
             <p className="empty">No trades yet.</p>
@@ -274,11 +272,6 @@ export function MarketView({ account, symbol, symbols, onSymbol, book, trades, e
               })}
             </ul>
           )}
-        </div>
-
-        <div className="card span-4 stretch">
-          <h2 className="card-title">Order book</h2>
-          <OrderBook book={book} />
         </div>
       </div>
     </>

@@ -6,17 +6,16 @@ import { useMarketSocket } from "./useMarketSocket";
 import { Icon } from "./components/Icon";
 import { HomeView } from "./views/HomeView";
 import { MarketView } from "./views/MarketView";
-import { PortfolioView } from "./views/PortfolioView";
 import { StockView } from "./views/StockView";
 
-type Tab = "home" | "stock" | "market" | "portfolio";
+type Tab = "home" | "stock" | "market";
 const TABS: [Tab, string, string][] = [
   ["home", "Home", "home"],
   ["stock", "Stocks", "stocks"],
   ["market", "Market lab", "lab"],
-  ["portfolio", "Portfolio", "portfolio"],
 ];
-const KNOWN: Tab[] = ["home", "stock", "market", "portfolio"];
+// Anything else stored (an old "portfolio" or "trade" tab) falls back to home.
+const KNOWN: Tab[] = ["home", "stock", "market"];
 
 function stored(key: string): string | null {
   try {
@@ -75,11 +74,10 @@ export default function App() {
     api.symbols().then((s) => s.length && setSymbols(s.map((x) => x.symbol))).catch(() => undefined);
   }, []);
 
-  // Every symbol's events in one list; each page filters to what it shows.
+  // News for the stock on screen, plus market-wide scenario steps.
   const loadEvents = useCallback(() => {
-    api.events().then(setEvents).catch(() => undefined);
-  }, []);
-  const symbolEvents = events.filter((e) => !e.symbol || e.symbol === symbol);
+    api.events(symbol).then(setEvents).catch(() => undefined);
+  }, [symbol]);
   const open = (s: string) => {
     setSymbol(s);
     setTab("stock");
@@ -117,21 +115,17 @@ export default function App() {
 
       <main className="main">
         {tab === "home" && (
-          <HomeView account={account} symbols={symbols} portfolio={portfolio} orders={orders}
-                    events={events} onOpen={open} />
+          <HomeView symbols={symbols} portfolio={portfolio} orders={orders} onOpen={open}
+                    onCancel={async (id) => { await api.cancelOrder(id).catch(() => undefined); refresh(); }} />
         )}
         {tab === "stock" && (
           <StockView symbol={symbol} symbols={symbols} onSymbol={setSymbol}
                      last={last} book={book} portfolio={portfolio} onTrade={setSheet}
-                     events={symbolEvents} />
+                     events={events} />
         )}
         {tab === "market" && (
           <MarketView account={account} symbol={symbol} symbols={symbols} onSymbol={setSymbol}
-                      book={book} trades={trades} events={symbolEvents} onEvent={loadEvents} />
-        )}
-        {tab === "portfolio" && (
-          <PortfolioView portfolio={portfolio} orders={orders} onOpen={open}
-                         onCancel={async (id) => { await api.cancelOrder(id).catch(() => undefined); refresh(); }} />
+                      trades={trades} events={events} onEvent={loadEvents} />
         )}
       </main>
 

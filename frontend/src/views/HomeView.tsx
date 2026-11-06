@@ -1,26 +1,26 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { Donut } from "../components/Donut";
 import { PriceChart, type Point } from "../components/PriceChart";
 import { Sparkline } from "../components/Sparkline";
 import { money, pct, signed, tone } from "../format";
 import { stockColor, stockName } from "../symbols";
-import type { Candle, MarketEvent, Order, Portfolio } from "../types";
+import type { Candle, Order, Portfolio } from "../types";
+
+const LIVE = new Set(["open", "partially_filled"]);
+const STATUS: Record<string, string> = {
+  open: "Waiting", partially_filled: "Partly filled", filled: "Filled", cancelled: "Cancelled", expired: "Expired",
+};
 
 interface Props {
-  account: string;
   symbols: string[];
   portfolio: Portfolio | null;
   orders: Order[];
-  events: MarketEvent[];
   onOpen: (symbol: string) => void;
+  onCancel: (id: number) => void;
 }
 
-function ago(t: number) {
-  const s = Math.max(0, Math.round(Date.now() / 1000 - t));
-  return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
-}
-
-export function HomeView({ symbols, portfolio, orders, events, onOpen }: Props) {
+export function HomeView({ symbols, portfolio: p, orders, onOpen, onCancel }: Props) {
   const [candles, setCandles] = useState<Record<string, Candle[]>>({});
 
   useEffect(() => {
@@ -39,141 +39,164 @@ export function HomeView({ symbols, portfolio, orders, events, onOpen }: Props) 
 
   // What today's holdings were worth over the last five minutes: cash plus
   // each position at that moment's price.
-  const held = portfolio?.positions.filter((p) => p.quantity > 0) ?? [];
+  const held = p?.positions.filter((x) => x.quantity > 0) ?? [];
   const times = [...new Set(Object.values(candles).flat().map((c) => c.t))].sort((a, b) => a - b);
   const lastClose: Record<string, number> = {};
   const series: Point[] = [];
-  if (portfolio) {
+  if (p && held.length) {
     for (const t of times) {
       for (const s of symbols) {
         const c = candles[s]?.find((x) => x.t === t);
         if (c) lastClose[s] = c.close;
       }
-      if (held.every((p) => lastClose[p.symbol] !== undefined)) {
-        const value = portfolio.cash.cents + held.reduce((n, p) => n + p.quantity * lastClose[p.symbol], 0);
+      if (held.every((x) => lastClose[x.symbol] !== undefined)) {
+        const value = p.cash.cents + held.reduce((n, x) => n + x.quantity * lastClose[x.symbol], 0);
         series.push({ t, v: value });
       }
     }
   }
 
-  const gain = (portfolio?.unrealized_pnl?.cents ?? 0) + (portfolio?.realized_pnl?.cents ?? 0);
-  const base = (portfolio?.total_value?.cents ?? 0) - gain;
-  const news = events.filter((e) => e.kind !== "scenario").slice(0, 6);
-  const recent = orders.slice(0, 6);
+  const gain = (p?.unrealized_pnl?.cents ?? 0) + (p?.realized_pnl?.cents ?? 0);
+  const total = p?.total_value?.cents ?? p?.cash.cents ?? 0;
+  const base = total - gain;
+  const live = orders.filter((o) => LIVE.has(o.status));
+  const past = orders.filter((o) => !LIVE.has(o.status)).slice(0, 8);
+  const parts = p ? [
+    ...held.map((x) => ({ label: x.symbol, value: x.market_value?.cents ?? 0, color: stockColor(x.symbol) })),
+    { label: "Cash", value: p.cash.cents, color: "var(--s-cash)" },
+  ] : [];
 
   return (
-    <>
-      <div className="grid">
-        <div className="card span-8 stretch">
-          <div className="balance-label">Portfolio value</div>
-          <div className="balance num">{portfolio?.total_value ? money(portfolio.total_value.cents) : "—"}</div>
-          <span className={`gain-pill num ${tone(gain)}`}>
-            {signed(gain)} ({pct(base ? (gain / base) * 100 : 0)})
-          </span>
-          <span className="muted" style={{ fontSize: 14 }}> all time</span>
-          <div style={{ marginTop: 14 }}>
-            <PriceChart series={series} height={270} />
+    <div className="grid">
+      <div className="card span-8 stretch">
+        <div className="balance-label">Portfolio value</div>
+        <div className="balance num">{p?.total_value ? money(p.total_value.cents) : "—"}</div>
+        <span className={`gain-pill num ${tone(gain)}`}>
+          {signed(gain)} ({pct(base ? (gain / base) * 100 : 0)})
+        </span>
+        <span className="muted" style={{ fontSize: 14 }}> all time</span>
+        <div style={{ marginTop: 14 }}>
+          {held.length ? (
+            <PriceChart series={series} height={240} />
+          ) : (
+            <div className="chart-empty">Your value starts moving once you own something. Pick a stock below.</div>
+          )}
+        </div>
+        {p && (
+          <div className="split">
+            <div><span>Cash you can spend</span><b>{money(p.available.cents)}</b></div>
+            <div><span>Invested</span><b>{p.positions_value ? money(p.positions_value.cents) : "—"}</b></div>
+            <div><span>Held for open orders</span><b>{money(p.reserved.cents)}</b></div>
           </div>
-          <div className="note muted num" style={{ fontSize: 13 }}>
-            Cash {portfolio ? money(portfolio.available.cents) : "—"} · Invested{" "}
-            {portfolio?.positions_value ? money(portfolio.positions_value.cents) : "—"} · Past 5 minutes
-          </div>
-        </div>
-
-        <div className="card span-4 stretch">
-          <h2 className="card-title">News <span className="muted">simulated</span></h2>
-          {news.length === 0 ? (
-            <p className="empty">Quiet so far. Headlines show up here as they happen.</p>
-          ) : (
-            <ul className="list">
-              {news.map((e, i) => (
-                <li key={i} style={{ cursor: e.symbol ? "pointer" : "default" }}
-                    onClick={() => e.symbol && onOpen(e.symbol)}>
-                  <span className="news-dot" style={{ background: e.kind === "good" ? "var(--up)" : "var(--down)" }} />
-                  <div className="grow">
-                    <div><b>{e.symbol}</b> {e.headline}</div>
-                    <div className="sub">{ago(e.t)}</div>
-                  </div>
-                  <span className={`num ${tone(e.impact_pct)}`} style={{ fontWeight: 700, fontSize: 13 }}>
-                    {pct(e.impact_pct, 1)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {symbols.map((s) => {
-          const cs = candles[s] ?? [];
-          const first = cs[0]?.close, last = cs[cs.length - 1]?.close;
-          const ch = first && last ? ((last - first) / first) * 100 : 0;
-          return (
-            <div key={s} className="card span-4 stock-card" onClick={() => onOpen(s)}
-                 role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen(s)}>
-              <div className="stock-head">
-                <span className="sym-dot" style={{ background: stockColor(s) }} />
-                <div style={{ flex: 1 }}>
-                  <span className="stock-name">{s}</span>{" "}
-                  <span className="stock-sym">{stockName(s)}</span>
-                </div>
-                <span className={`num ${tone(ch)}`} style={{ fontSize: 14, fontWeight: 600 }}>{pct(ch)}</span>
-              </div>
-              <div className="stock-price num">{last ? money(last) : "—"}</div>
-              <div style={{ marginTop: 10 }}>
-                <Sparkline values={cs.map((c) => c.close)} color={stockColor(s)} />
-              </div>
-            </div>
-          );
-        })}
-
-        <div className="card span-6 stretch">
-          <h2 className="card-title">Your stocks</h2>
-          {held.length === 0 ? (
-            <p className="empty">Nothing yet. Pick a stock above to buy your first shares.</p>
-          ) : (
-            <ul className="list">
-              {held.map((p) => (
-                <li key={p.symbol} style={{ cursor: "pointer" }} onClick={() => onOpen(p.symbol)}>
-                  <span className="sym-dot" style={{ background: stockColor(p.symbol) }} />
-                  <div className="grow">
-                    <div style={{ fontWeight: 700 }}>{stockName(p.symbol)}</div>
-                    <div className="sub">{p.quantity} shares</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div className="num" style={{ fontWeight: 700 }}>{p.market_value ? money(p.market_value.cents) : "—"}</div>
-                    <div className={`num ${tone(p.unrealized_pnl?.cents ?? 0)}`} style={{ fontSize: 12, fontWeight: 600 }}>
-                      {p.unrealized_pnl ? signed(p.unrealized_pnl.cents) : ""}
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="card span-6 stretch">
-          <h2 className="card-title">Recent activity</h2>
-          {recent.length === 0 ? (
-            <p className="empty">Your orders will show up here.</p>
-          ) : (
-            <ul className="list">
-              {recent.map((o) => (
-                <li key={o.id}>
-                  <span className={o.side === "buy" ? "up" : "down"} style={{ fontWeight: 700, width: 34 }}>
-                    {o.side === "buy" ? "Buy" : "Sell"}
-                  </span>
-                  <div className="grow">
-                    <div><b>{o.symbol}</b> · {o.quantity} shares</div>
-                    <div className="sub">{o.limit_price ? `Limit ${money(o.limit_price.cents)}` : "Market order"}</div>
-                  </div>
-                  <span className="pill">{o.status === "filled" ? "Filled" : o.status === "open" ? "Waiting"
-                    : o.status === "partially_filled" ? "Partly filled" : o.status === "cancelled" ? "Cancelled" : "Expired"}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        )}
       </div>
-    </>
+
+      <div className="card span-4 stretch">
+        <h2 className="card-title">Allocation</h2>
+        {p && (
+          <div className="donut-wrap">
+            <Donut parts={parts} label={`${total ? Math.round(((total - p.cash.cents) / total) * 100) : 0}%`} sub="invested" />
+            <ul className="legend-list">
+              {parts.map((x) => (
+                <li key={x.label}>
+                  <span className="news-dot" style={{ background: x.color }} />
+                  <span className="grow">{x.label}</span>
+                  <b className="num">{total ? Math.round((x.value / total) * 100) : 0}%</b>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {symbols.map((s) => {
+        const cs = candles[s] ?? [];
+        const first = cs[0]?.close, last = cs[cs.length - 1]?.close;
+        const ch = first && last ? ((last - first) / first) * 100 : 0;
+        return (
+          <div key={s} className="card span-4 stock-card" onClick={() => onOpen(s)}
+               role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen(s)}>
+            <div className="stock-head">
+              <span className="sym-dot" style={{ background: stockColor(s) }} />
+              <div style={{ flex: 1 }}>
+                <span className="stock-name">{s}</span>{" "}
+                <span className="stock-sym">{stockName(s)}</span>
+              </div>
+              <span className={`num ${tone(ch)}`} style={{ fontSize: 14, fontWeight: 600 }}>{pct(ch)}</span>
+            </div>
+            <div className="stock-price num">{last ? money(last) : "—"}</div>
+            <div style={{ marginTop: 10 }}>
+              <Sparkline values={cs.map((c) => c.close)} color={stockColor(s)} />
+            </div>
+          </div>
+        );
+      })}
+
+      {held.length > 0 && (
+        <div className="card span-12">
+          <h2 className="card-title">Your stocks</h2>
+          <table className="table">
+            <thead>
+              <tr><th>Stock</th><th>Shares</th><th className="wide">Paid (avg)</th><th className="wide">Price</th><th>Value</th><th>Gain</th></tr>
+            </thead>
+            <tbody>
+              {held.map((x) => (
+                <tr key={x.symbol} style={{ cursor: "pointer" }} onClick={() => onOpen(x.symbol)}>
+                  <td>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                      <span className="sym-dot" style={{ background: stockColor(x.symbol) }} />
+                      <b>{x.symbol}</b> <span className="muted">{stockName(x.symbol)}</span>
+                    </span>
+                  </td>
+                  <td>{x.quantity}</td>
+                  <td className="wide">{x.avg_cost ? money(x.avg_cost.cents) : "—"}</td>
+                  <td className="wide">{x.last_price ? money(x.last_price.cents) : "—"}</td>
+                  <td>{x.market_value ? money(x.market_value.cents) : "—"}</td>
+                  <td className={tone(x.unrealized_pnl?.cents ?? 0)}>{x.unrealized_pnl ? signed(x.unrealized_pnl.cents) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {live.length > 0 && (
+        <div className={`card ${past.length ? "span-6" : "span-12"} stretch`}>
+          <h2 className="card-title">Open orders</h2>
+          <OrderTable orders={live} onCancel={onCancel} />
+        </div>
+      )}
+
+      {past.length > 0 && (
+        <div className={`card ${live.length ? "span-6" : "span-12"} stretch`}>
+          <h2 className="card-title">History</h2>
+          <OrderTable orders={past} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrderTable({ orders, onCancel }: { orders: Order[]; onCancel?: (id: number) => void }) {
+  return (
+    <table className="table">
+      <thead>
+        <tr><th>Order</th><th>Shares</th><th>Price</th><th>Status</th>{onCancel && <th />}</tr>
+      </thead>
+      <tbody>
+        {orders.map((o) => (
+          <tr key={o.id}>
+            <td>
+              <span className={o.side === "buy" ? "up" : "down"} style={{ fontWeight: 700 }}>{o.side === "buy" ? "Buy" : "Sell"}</span>{" "}
+              {o.symbol}
+            </td>
+            <td>{o.filled_quantity === o.quantity || o.filled_quantity === 0 ? o.quantity : `${o.filled_quantity}/${o.quantity}`}</td>
+            <td>{o.limit_price ? money(o.limit_price.cents) : "Market"}</td>
+            <td><span className="pill">{STATUS[o.status]}</span></td>
+            {onCancel && <td><button className="link" onClick={() => onCancel(o.id)}>Cancel</button></td>}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
