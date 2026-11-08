@@ -18,10 +18,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from .db import create_tables, engine, get_session
 from .events import bus
+from .history import make_history
 from .pnl import cost_basis
 from .agents import Population
 from .market_sim import MarketSim, fetch_real_prices, last_traded
@@ -73,6 +75,8 @@ _paused = False
 # Highest trade id already pushed to watchers, per symbol, so each update
 # carries only what is new.
 _published: dict[str, int] = {}
+# Made-up (time, cents) points from before each symbol's first trade.
+_history: dict[str, list[tuple[int, int]]] = {}
 
 
 async def _run_market() -> None:
@@ -210,6 +214,15 @@ async def lifespan(app: FastAPI):
         _sim.ensure_accounts(session)
         for symbol in SYMBOLS:
             _published[symbol] = _latest_trade_id(session, symbol)
+            # Anchored to the first trade ever, so the past never shifts.
+            first = session.exec(
+                select(TradeRecord).where(TradeRecord.symbol == symbol)
+                .order_by(TradeRecord.id)
+            ).first()
+            _history[symbol] = (
+                make_history(symbol, first.created_at.timestamp(), first.price_cents)
+                if first else make_history(symbol, time.time(), seeds[symbol])
+            )
 
     task = asyncio.create_task(_run_market())
     yield
@@ -471,33 +484,47 @@ def symbols():
 
 
 @app.get("/candles/{symbol}", response_model=list[Candle], tags=["market"])
-def candles(symbol: str, seconds: int = Query(5, ge=1, le=3600),
+def candles(symbol: str, seconds: int = Query(5, ge=1, le=604_800),
             limit: int = Query(120, ge=1, le=600),
             ex: Exchange = Depends(get_exchange)):
-    """Trades bucketed into fixed time windows, newest last."""
-    rows = ex.session.exec(
-        select(TradeRecord).where(TradeRecord.symbol == symbol.upper())
-        .order_by(TradeRecord.id.desc()).limit(limit * 60)
-    ).all()
+    """Trades bucketed into fixed time windows, newest last.
+
+    Bucketed in the database, because a one-year chart covers far more trades
+    than are worth loading here. Anything older than the first real trade comes
+    from the made-up history in app.history, with zero volume.
+    """
+    symbol = symbol.upper()
     # Only the window the caller asked for. Without this, a market that just
     # restarted fills "the past 5 minutes" with buckets from hours earlier,
     # and the chart draws the overnight gap as one long flat line.
     cutoff = time.time() - seconds * limit
-    buckets: dict[int, Candle] = {}
-    for t in reversed(rows):
-        if t.created_at.timestamp() < cutoff:
+    rows = ex.session.connection().execute(text("""
+        SELECT floor(extract(epoch FROM created_at::timestamptz) / :s)::bigint * :s AS bucket,
+               (array_agg(price_cents ORDER BY id))[1] AS open,
+               max(price_cents) AS high,
+               min(price_cents) AS low,
+               (array_agg(price_cents ORDER BY id DESC))[1] AS close,
+               sum(quantity)::bigint AS volume
+        FROM trade_record
+        WHERE symbol = :symbol AND created_at::timestamptz >= to_timestamp(:cutoff)
+        GROUP BY 1 ORDER BY 1
+    """), {"s": seconds, "symbol": symbol, "cutoff": cutoff}).all()
+    buckets = {int(r.bucket): Candle(t=int(r.bucket), open=r.open, high=r.high, low=r.low,
+                                close=r.close, volume=r.volume) for r in rows}
+
+    earliest = min(buckets, default=None)
+    for t, price in _history.get(symbol, []):
+        start = t // seconds * seconds
+        if t < cutoff or (earliest is not None and start >= earliest):
             continue
-        start = int(t.created_at.timestamp()) // seconds * seconds
         c = buckets.get(start)
         if c is None:
-            buckets[start] = Candle(t=start, open=t.price_cents, high=t.price_cents,
-                                    low=t.price_cents, close=t.price_cents,
-                                    volume=t.quantity)
+            buckets[start] = Candle(t=start, open=price, high=price, low=price,
+                                    close=price, volume=0)
         else:
-            c.high = max(c.high, t.price_cents)
-            c.low = min(c.low, t.price_cents)
-            c.close = t.price_cents
-            c.volume += t.quantity
+            c.high = max(c.high, price)
+            c.low = min(c.low, price)
+            c.close = price
     return [buckets[k] for k in sorted(buckets)][-limit:]
 
 

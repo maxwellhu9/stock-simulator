@@ -370,3 +370,37 @@ def test_candles_never_reach_outside_the_requested_window(sim_client):
 
     candles = sim_client.get("/candles/SIM", params={"seconds": 5, "limit": 60}).json()
     assert candles and min(c["t"] for c in candles) >= time.time() - 5 * 60 - 5
+
+
+def test_long_ranges_reach_back_before_the_first_trade(sim_client):
+    """A one-year chart runs on made-up history that ends where real trading starts."""
+    import time
+
+    from app.history import make_history
+    from app import main
+
+    now = time.time()
+    main._history["SIM"] = make_history("SIM", now - 60, 10_000)
+    try:
+        day = 86_400
+        candles = sim_client.get("/candles/SIM", params={"seconds": day, "limit": 365}).json()
+    finally:
+        main._history.pop("SIM")
+
+    assert len(candles) > 300
+    assert candles[0]["t"] < now - 300 * day
+    assert candles[0]["volume"] == 0
+    ts = [c["t"] for c in candles]
+    assert ts == sorted(ts) and len(ts) == len(set(ts))
+
+
+def test_made_up_history_is_stable_and_joins_the_start():
+    from app.history import make_history
+
+    a = make_history("AAPL", 1_000_000_000.0, 20_000)
+    assert a == make_history("AAPL", 1_000_000_000.0, 20_000)
+    assert a != make_history("MSFT", 1_000_000_000.0, 20_000)
+    assert all(x[0] < y[0] for x, y in zip(a, a[1:]))
+    assert a[-1][0] == 1_000_000_000 - 15
+    assert abs(a[-1][1] - 20_000) < 20_000 * 0.05
+

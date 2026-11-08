@@ -21,7 +21,8 @@ import type {
   SimState,
   Trade,
 } from "../types";
-import { Exchange, ExchangeError, type OrderRec, type TradeRec, formatCents, remaining } from "./exchange";
+import { type Bar, Exchange, ExchangeError, type OrderRec, type TradeRec, formatCents, remaining } from "./exchange";
+import { makeHistory } from "./history";
 import { MarketSim, SCENARIOS, type MarketEvent as SimEvent } from "./market";
 
 const SYMBOLS = ["AAPL", "NVDA", "MSFT"];
@@ -43,6 +44,7 @@ let speed = 1;
 let paused = false;
 const watchers = new Map<string, Set<(m: SocketMessage) => void>>();
 const published: Record<string, number> = {};
+const past: Record<string, Bar[]> = {};
 
 function boot() {
   if (sim) return;
@@ -50,6 +52,7 @@ function boot() {
   sim = new MarketSim(ex, START_PRICES, clock);
   // Run the first ten minutes instantly with backdated timestamps.
   const start = Date.now() / 1000 - WARMUP_TICKS;
+  for (const s of SYMBOLS) past[s] = makeHistory(s, start, START_PRICES[s]);
   for (let i = 0; i < WARMUP_TICKS; i++) {
     virtualNow = start + i;
     for (const s of SYMBOLS) sim.tick(s);
@@ -260,23 +263,27 @@ export const demoApi = {
   trades: (symbol: string, limit = 20) => handle(() =>
     (ex.trades.get(symbol) ?? []).slice(-limit).reverse().map(tradeOut)),
   candles: (symbol: string, seconds: number, limit: number) => handle((): Candle[] => {
-    const bars = ex.bars.get(symbol) ?? [];
-    const cutoff = clock() - seconds * limit;
+    const cutoff = Math.floor(clock() - seconds * limit);
     const out: Candle[] = [];
-    for (let i = bars.length - 1; i >= 0 && bars[i].t >= Math.floor(cutoff); i--) {
-      const b = bars[i];
-      const start = Math.floor(b.t / seconds) * seconds;
-      const c = out[out.length - 1];
-      if (c && c.t === start) {
-        // Walking backwards, so this bar came BEFORE what is already merged.
-        c.open = b.open;
-        c.high = Math.max(c.high, b.high);
-        c.low = Math.min(c.low, b.low);
-        c.volume += b.volume;
-      } else {
-        out.push({ ...b, t: start });
+    // Newest first: live bars, then the made-up past that runs up to them.
+    const absorb = (bars: Bar[]) => {
+      for (let i = bars.length - 1; i >= 0 && bars[i].t >= cutoff; i--) {
+        const b = bars[i];
+        const start = Math.floor(b.t / seconds) * seconds;
+        const c = out[out.length - 1];
+        if (c && c.t === start) {
+          // Walking backwards, so this bar came BEFORE what is already merged.
+          c.open = b.open;
+          c.high = Math.max(c.high, b.high);
+          c.low = Math.min(c.low, b.low);
+          c.volume += b.volume;
+        } else {
+          out.push({ ...b, t: start });
+        }
       }
-    }
+    };
+    absorb(ex.bars.get(symbol) ?? []);
+    absorb(past[symbol] ?? []);
     return out.reverse().slice(-limit);
   }),
 

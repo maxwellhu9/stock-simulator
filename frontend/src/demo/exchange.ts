@@ -69,7 +69,7 @@ export interface Basis {
 }
 
 const KEEP_TRADES = 200;
-const KEEP_SECONDS = 3700;
+const KEEP_SECONDS = 86_400;
 
 export const remaining = (o: OrderRec) => o.quantity - o.filled;
 export const isBot = (a: Account) => a.name.startsWith("sim:");
