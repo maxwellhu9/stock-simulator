@@ -41,7 +41,7 @@ export interface ShockResult {
 
 // -- news ---------------------------------------------------------------------
 
-const GOOD_NEWS: [string, number, number][] = [
+export const GOOD_NEWS: [string, number, number][] = [
   ["Earnings beat expectations", 0.02, 0.04],
   ["New product launch gets strong early reviews", 0.012, 0.025],
   ["Analysts upgrade the stock", 0.01, 0.02],
@@ -58,7 +58,7 @@ const GOOD_NEWS: [string, number, number][] = [
   ["A large fund discloses a new stake", 0.008, 0.016],
   ["Settles a long-running lawsuit", 0.01, 0.02],
 ];
-const BAD_NEWS: [string, number, number][] = [
+export const BAD_NEWS: [string, number, number][] = [
   ["Earnings miss expectations", 0.025, 0.045],
   ["CEO steps down unexpectedly", 0.02, 0.035],
   ["Regulators open an investigation", 0.02, 0.04],

@@ -241,6 +241,21 @@ input { font: inherit; }
 .table th:first-child, .table td:first-child { text-align: left; }
 .table th:not(:first-child), .table td:not(:first-child) { padding-left: 14px; white-space: nowrap; }
 .chart-empty { height: 240px; display: grid; place-items: center; text-align: center; padding: 0 24px; color: var(--ink-3); font-size: 14px; border: 1px dashed var(--line); border-radius: var(--radius); }
+.challenge-start { max-width: 560px; margin: 60px auto; padding: 36px; }
+.challenge-start h1 { margin: 0 0 10px; font-size: 30px; line-height: 1.15; letter-spacing: -0.02em; }
+.challenge-start .btn { width: 100%; margin-top: 12px; }
+.challenge-top { display: flex; gap: 32px; align-items: center; }
+.challenge-clock { font-size: 48px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+.challenge-progress { flex: 1; min-width: 0; }
+.challenge-count { font-size: 15px; color: var(--ink-2); }
+.challenge-count b { font-size: 22px; color: var(--ink); }
+.challenge-bar { height: 10px; background: var(--panel); border-radius: 5px; overflow: hidden; margin: 8px 0; }
+.challenge-bar i { display: block; height: 100%; background: var(--up); transition: width 0.2s; }
+.challenge-sub { font-size: 13px; }
+.challenge-news { margin-top: 16px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 15px; }
+.challenge-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 8px; }
+.challenge-desc { font-size: 12px; margin-top: 2px; }
+.challenge-you td { font-weight: 700; }
 .split { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
 .split div { padding: 12px 0; border-top: 1px solid var(--line); }
 .split span { display: block; font-size: 12px; color: var(--ink-3); font-weight: 600; margin-bottom: 4px; }
@@ -284,6 +299,9 @@ input { font: inherit; }
   .table .wide { display: none; }
   .split { grid-template-columns: 1fr; }
   .chart-empty { height: 130px; }
+  .challenge-actions { grid-template-columns: repeat(2, 1fr); }
+  .challenge-clock { font-size: 38px; }
+  .challenge-top { gap: 18px; }
 }
 
 /* Small colour dot that stands in for a logo. */

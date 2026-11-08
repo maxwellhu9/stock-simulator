@@ -4,18 +4,20 @@ import { OrderSheet } from "./components/OrderSheet";
 import type { MarketEvent, Order, Portfolio, Side } from "./types";
 import { useMarketSocket } from "./useMarketSocket";
 import { Icon } from "./components/Icon";
+import { ChallengeView } from "./views/ChallengeView";
 import { HomeView } from "./views/HomeView";
 import { MarketView } from "./views/MarketView";
 import { StockView } from "./views/StockView";
 
-type Tab = "home" | "stock" | "market";
+type Tab = "home" | "stock" | "market" | "challenge";
 const TABS: [Tab, string, string][] = [
   ["home", "Home", "home"],
   ["stock", "Stocks", "stocks"],
   ["market", "Market lab", "lab"],
+  ["challenge", "Challenge", "target"],
 ];
 // Anything else stored (an old "portfolio" or "trade" tab) falls back to home.
-const KNOWN: Tab[] = ["home", "stock", "market"];
+const KNOWN: Tab[] = ["home", "stock", "market", "challenge"];
 
 function stored(key: string): string | null {
   try {
@@ -127,6 +129,7 @@ export default function App() {
           <MarketView account={account} symbol={symbol} symbols={symbols} onSymbol={setSymbol}
                       trades={trades} events={events} onEvent={loadEvents} />
         )}
+        {tab === "challenge" && <ChallengeView />}
       </main>
 
       {sheet && (
