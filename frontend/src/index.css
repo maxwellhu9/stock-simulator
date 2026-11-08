@@ -155,7 +155,14 @@ input { font: inherit; }
 .chip.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 .price-big { font-size: 48px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
 .change { font-size: 15px; font-weight: 600; margin-top: 10px; min-height: 20px; }
-.chart-wrap { margin: 18px -4px 8px; }
+.chart-wrap { margin: 26px -4px 8px; }
+.chart-time { position: absolute; top: -18px; transform: translateX(-50%); font-size: 12px; font-weight: 600; color: var(--ink-3); white-space: nowrap; pointer-events: none; }
+.range-tabs { display: flex; gap: 18px; flex-wrap: wrap; }
+.range-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 0; font: inherit; font-size: 13px; font-weight: 700; color: var(--ink-2); cursor: pointer; }
+.range-tabs button:hover { color: var(--ink); }
+.range-tabs button.on { border-bottom-color: currentColor; }
+.range-tabs button.on.up { color: var(--up); }
+.range-tabs button.on.down { color: var(--down); }
 .ranges { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .kv { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; border-bottom: 1px solid var(--line); }

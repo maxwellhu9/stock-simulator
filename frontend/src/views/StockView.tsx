@@ -7,13 +7,32 @@ import { money, pct, signed, tone } from "../format";
 import { stockColor, stockName } from "../symbols";
 import type { Book, MarketEvent, Money, Portfolio, Side } from "../types";
 
+// Up to 1H is real trading once the market has been open that long. Further
+// back, the chart runs on the made-up history that leads into it.
 const RANGES = {
-  "1M": { seconds: 2, limit: 30, label: "past minute" },
-  "5M": { seconds: 5, limit: 60, label: "past 5 minutes" },
-  "15M": { seconds: 15, limit: 60, label: "past 15 minutes" },
-  "1H": { seconds: 60, limit: 60, label: "past hour" },
+  LIVE: { seconds: 1, limit: 300, label: "past 5 minutes" },
+  "1H": { seconds: 15, limit: 240, label: "past hour" },
+  "1D": { seconds: 300, limit: 288, label: "past day" },
+  "1W": { seconds: 3600, limit: 168, label: "past week" },
+  "1M": { seconds: 7200, limit: 360, label: "past month" },
+  "3M": { seconds: 21600, limit: 360, label: "past 3 months" },
+  "1Y": { seconds: 86400, limit: 365, label: "past year" },
+  "5Y": { seconds: 604800, limit: 261, label: "past 5 years" },
 } as const;
 type Range = keyof typeof RANGES;
+
+/** How to label a moment on the chart, finer for shorter ranges. */
+function stamp(t: number, range: Range): string {
+  const d = new Date(t * 1000);
+  if (range === "LIVE" || range === "1H") {
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  }
+  if (range === "1D") return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (range === "1W" || range === "1M") {
+    return d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }
+  return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }).toUpperCase();
+}
 
 interface Props {
   symbol: string;
@@ -27,7 +46,7 @@ interface Props {
 }
 
 export function StockView({ symbol, symbols, onSymbol, last, book, portfolio, onTrade, events }: Props) {
-  const [range, setRange] = useState<Range>("5M");
+  const [range, setRange] = useState<Range>("LIVE");
   const [series, setSeries] = useState<Point[]>([]);
   const [scrub, setScrub] = useState<Point | null>(null);
 
@@ -40,7 +59,7 @@ export function StockView({ symbol, symbols, onSymbol, last, book, portfolio, on
         .catch(() => undefined);
     setSeries([]);
     load();
-    const id = setInterval(load, range === "1M" ? 2000 : 3000);
+    const id = setInterval(load, range === "LIVE" ? 1000 : range === "1H" ? 3000 : 15000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -82,7 +101,7 @@ export function StockView({ symbol, symbols, onSymbol, last, book, portfolio, on
               <>
                 {delta >= 0 ? "▲" : "▼"} {signed(delta).replace(/^[+−]/, "")} ({pct((delta / start) * 100)})
                 <span className="muted" style={{ fontWeight: 500 }}>
-                  {" "}{scrub ? new Date(scrub.t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : RANGES[range].label}
+                  {" "}{scrub ? stamp(scrub.t, range) : RANGES[range].label}
                 </span>
               </>
             )}
@@ -90,12 +109,15 @@ export function StockView({ symbol, symbols, onSymbol, last, book, portfolio, on
           {fresh && <div style={{ marginTop: 16 }}><Headline event={fresh} /></div>}
           <div className="chart-wrap">
             <PriceChart series={line} baseline={start} onScrub={setScrub} height={360}
-                        markers={news.map((e) => ({ t: e.t, tone: e.kind === "good" ? "up" : "down" }))} />
+                        formatTime={(t) => stamp(t, range)}
+                        markers={range === "LIVE" || range === "1H"
+                          ? news.map((e) => ({ t: e.t, tone: e.kind === "good" ? "up" : "down" }))
+                          : undefined} />
           </div>
           <div className="ranges">
-            <div className="seg">
+            <div className="range-tabs">
               {(Object.keys(RANGES) as Range[]).map((r) => (
-                <button key={r} className={r === range ? "on" : ""} onClick={() => setRange(r)}>{r}</button>
+                <button key={r} className={r === range ? `on ${tone(delta) || "up"}` : ""} onClick={() => setRange(r)}>{r}</button>
               ))}
             </div>
             {book?.best_bid && book.best_ask && (

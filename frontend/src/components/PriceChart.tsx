@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface Point {
   t: number; // seconds
@@ -22,7 +22,12 @@ interface Props {
   baseline?: number;
   onScrub?: (p: Point | null) => void;
   markers?: Marker[];
+  /** Text for the label above the crosshair. */
+  formatTime?: (t: number) => string;
 }
+
+const clockTime = (t: number) =>
+  new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
 
 /**
  * A single-line price chart with hover scrubbing.
@@ -30,6 +35,9 @@ interface Props {
  * Written by hand rather than pulled from a charting library: it draws exactly
  * one thing, and doing it directly keeps the bundle small and the look clean
  * (no axes, gridlines, or legends the screen doesn't need).
+ *
+ * The crosshair follows the cursor exactly and reads the price off the line
+ * between points, so scrubbing glides instead of jumping from point to point.
  *
  * Measures its own width so strokes stay crisp instead of being stretched by a
  * scaled viewBox.
@@ -44,6 +52,21 @@ function thin(pts: Point[], max: number): Point[] {
   return out;
 }
 
+/** The line's value at time t, interpolated between the two nearest points. */
+function valueAt(pts: Point[], t: number): Point {
+  let lo = 0;
+  let hi = pts.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid].t <= t) lo = mid;
+    else hi = mid;
+  }
+  const a = pts[lo];
+  const b = pts[hi];
+  const k = b.t > a.t ? Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t))) : 0;
+  return { t, v: Math.round(a.v + (b.v - a.v) * k) };
+}
+
 export function PriceChart({
   series: rawSeries,
   reference: rawReference,
@@ -52,11 +75,11 @@ export function PriceChart({
   baseline,
   onScrub,
   markers,
+  formatTime = clockTime,
 }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
-  const [hover, setHover] = useState<number | null>(null);
-  const gradId = useId();
+  const [hover, setHover] = useState<number | null>(null); // a time, in seconds
 
   useEffect(() => {
     if (!box.current) return;
@@ -107,16 +130,13 @@ export function PriceChart({
   function scrub(clientX: number) {
     if (!box.current) return;
     const rx = clientX - box.current.getBoundingClientRect().left;
-    const t = t0 + ((rx - pad) / (width - pad * 2)) * tspan;
-    let best = 0;
-    for (let i = 1; i < series.length; i++) {
-      if (Math.abs(series[i].t - t) < Math.abs(series[best].t - t)) best = i;
-    }
-    setHover(best);
-    onScrub?.(series[best]);
+    const t = Math.min(t1, Math.max(t0, t0 + ((rx - pad) / (width - pad * 2)) * tspan));
+    setHover(t);
+    onScrub?.(valueAt(series, t));
   }
 
-  const hp = hover !== null ? series[hover] : null;
+  const hp = hover !== null ? valueAt(series, Math.min(t1, Math.max(t0, hover))) : null;
+  const end = series[series.length - 1];
 
   return (
     <div
@@ -129,16 +149,6 @@ export function PriceChart({
       }}
     >
       <svg width={width} height={height} style={{ display: "block", overflow: "visible" }}>
-        <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" style={{ stopColor: stroke, stopOpacity: 0.16 }} />
-            <stop offset="100%" style={{ stopColor: stroke, stopOpacity: 0 }} />
-          </linearGradient>
-        </defs>
-        <path
-          d={`${path(series)}L${x(series[series.length - 1].t).toFixed(1)},${height}L${x(series[0].t).toFixed(1)},${height}Z`}
-          fill={`url(#${CSS.escape(gradId)})`} stroke="none"
-        />
         {(markers ?? [])
           .filter((m) => m.t >= t0 && m.t <= t1)
           .map((m, i) => {
@@ -161,17 +171,24 @@ export function PriceChart({
           <path d={path(reference)} fill="none" stroke="var(--ink-3)"
                 strokeWidth={1.5} strokeDasharray="5 5" />
         )}
-        <path d={path(series)} fill="none" stroke={stroke} strokeWidth={2.25}
+        <path d={path(series)} fill="none" stroke={stroke} strokeWidth={1.75}
               strokeLinejoin="round" strokeLinecap="round" />
-        {hp && (
+        {hp ? (
           <>
             <line x1={x(hp.t)} x2={x(hp.t)} y1={0} y2={height}
                   stroke="var(--ink-3)" strokeWidth={1} />
             <circle cx={x(hp.t)} cy={y(hp.v)} r={5} fill={stroke}
-                    stroke="var(--bg)" strokeWidth={2.5} />
+                    stroke="var(--card)" strokeWidth={2} />
           </>
+        ) : (
+          <circle cx={x(end.t)} cy={y(end.v)} r={3.5} fill={stroke} />
         )}
       </svg>
+      {hp && (
+        <div className="chart-time num" style={{ left: Math.min(width - 60, Math.max(60, x(hp.t))) }}>
+          {formatTime(hp.t)}
+        </div>
+      )}
     </div>
   );
 }
