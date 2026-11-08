@@ -250,6 +250,11 @@ class SimStateOut(BaseModel):
     scenario: "RunningScenario | None" = None
 
 
+class ValuePoint(BaseModel):
+    t: float  # unix seconds
+    v: int    # what the account was worth, in cents
+
+
 class Candle(BaseModel):
     t: int  # bucket start, unix seconds
     open: int

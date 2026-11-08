@@ -115,7 +115,7 @@ export default function App() {
 
       <main className="main">
         {tab === "home" && (
-          <HomeView symbols={symbols} portfolio={portfolio} orders={orders} onOpen={open}
+          <HomeView account={account} symbols={symbols} portfolio={portfolio} orders={orders} onOpen={open}
                     onCancel={async (id) => { await api.cancelOrder(id).catch(() => undefined); refresh(); }} />
         )}
         {tab === "stock" && (

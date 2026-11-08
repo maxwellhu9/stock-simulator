@@ -404,3 +404,33 @@ def test_made_up_history_is_stable_and_joins_the_start():
     assert a[-1][0] == 1_000_000_000 - 15
     assert abs(a[-1][1] - 20_000) < 20_000 * 0.05
 
+
+def test_account_history_runs_from_start_to_current_value(client):
+    mk(client, "alice")
+    mk(client, "bob", "0.00")
+    mk(client, "carol")
+    from sqlmodel import Session, create_engine
+
+    from app.exchange import Exchange
+    engine = create_engine(TEST_URL)
+    with Session(engine) as s:
+        ex = Exchange(s, books=_books)
+        ex.position(ex.get_account("bob").id, "ACME").quantity = 500
+        s.commit()
+
+    assert client.get("/accounts/alice/history").json() == []
+
+    def trade(buyer, price):
+        client.post("/orders", json={"account": "bob", "symbol": "ACME", "side": "sell",
+                                     "quantity": 100, "limit_price": price})
+        client.post("/orders", json={"account": buyer, "symbol": "ACME", "side": "buy",
+                                     "quantity": 100, "limit_price": price})
+
+    trade("alice", "100.00")
+    trade("carol", "110.00")  # marks alice's shares up by $10 each
+
+    points = client.get("/accounts/alice/history").json()
+    assert points[0]["v"] == 5_000_000
+    assert points[-1]["v"] == 5_100_000
+    assert all(a["t"] < b["t"] for a, b in zip(points, points[1:]))
+

@@ -20,6 +20,7 @@ import type {
   Side,
   SimState,
   Trade,
+  ValuePoint,
 } from "../types";
 import { type Bar, Exchange, ExchangeError, type OrderRec, type TradeRec, formatCents, remaining } from "./exchange";
 import { makeHistory } from "./history";
@@ -27,6 +28,7 @@ import { MarketSim, SCENARIOS, type MarketEvent as SimEvent } from "./market";
 
 const SYMBOLS = ["AAPL", "NVDA", "MSFT"];
 const START_PRICES: Record<string, number> = { AAPL: 23150, NVDA: 18420, MSFT: 51075 };
+const VALUE_POINTS = 240;
 const WARMUP_TICKS = 900; // fifteen minutes of history, so the charts are never empty
 
 export type SocketMessage =
@@ -215,6 +217,63 @@ function toCents(s: string): number {
   return Number(m[1]) * 100 + Number((m[2] ?? "0").padEnd(2, "0"));
 }
 
+/** What an account was actually worth, from its first trade until now. */
+function valueHistory(name: string): ValuePoint[] {
+  const a = ex.getAccount(name);
+  const fills = ex.fillsOf(a.id);
+  if (!fills.length) return [];
+
+  // Work out the starting cash by undoing every trade.
+  let cash = a.cash;
+  for (const f of fills) {
+    if (f.buyer === a.id) cash += f.price * f.quantity;
+    if (f.seller === a.id) cash -= f.price * f.quantity;
+  }
+
+  const start = fills[0].t;
+  const now = clock();
+  const step = Math.max(1, Math.ceil((now - start) / VALUE_POINTS));
+  const held = new Map<string, number>();
+  const price = new Map<string, number>();
+  const cursor = new Map<string, number>();
+  const worth = () => {
+    let total = cash;
+    for (const [s, q] of held) total += q * price.get(s)!;
+    return total;
+  };
+
+  const points: ValuePoint[] = [{ t: start - 1, v: cash }];
+  let i = 0;
+  for (let bucket = Math.floor(start / step) * step; bucket < now; bucket += step) {
+    const end = bucket + step;
+    for (; i < fills.length && fills[i].t < end; i++) {
+      const f = fills[i];
+      const notional = f.price * f.quantity;
+      if (f.buyer === a.id) {
+        cash -= notional;
+        held.set(f.symbol, (held.get(f.symbol) ?? 0) + f.quantity);
+      }
+      if (f.seller === a.id) {
+        cash += notional;
+        held.set(f.symbol, (held.get(f.symbol) ?? 0) - f.quantity);
+      }
+      price.set(f.symbol, f.price);
+    }
+    for (const s of held.keys()) {
+      const bars = ex.bars.get(s) ?? [];
+      let c = cursor.get(s) ?? 0;
+      for (; c < bars.length && bars[c].t < end; c++) {
+        if (bars[c].t >= bucket) price.set(s, bars[c].close);
+      }
+      cursor.set(s, c);
+    }
+    if (end < now) points.push({ t: end, v: worth() }); // the open bucket is the live point below
+  }
+  for (const s of held.keys()) price.set(s, sim.last[s]);
+  points.push({ t: now, v: worth() });
+  return points;
+}
+
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 
 /** Run one call like a request: boot if needed, turn domain errors into HTTP ones. */
@@ -241,6 +300,8 @@ export const demoApi = {
     if (!ex.findAccount(name)) ex.openAccount(name, 100_000_00);
     return portfolioOut(name);
   }),
+
+  valueHistory: (name: string) => handle(() => valueHistory(name)),
 
   placeOrder: (body: { account: string; symbol: string; side: Side; quantity: number; limit_price: string | null }) =>
     handle((): PlaceOrderResult => {

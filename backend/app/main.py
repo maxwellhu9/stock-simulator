@@ -12,6 +12,7 @@ not strand anyone's open orders.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import time
 from contextlib import asynccontextmanager
@@ -19,7 +20,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-from sqlmodel import Session, select
+from sqlmodel import Session, or_, select
 
 from .db import create_tables, engine, get_session
 from .events import bus
@@ -61,6 +62,7 @@ from .schemas import (
     PortfolioOut,
     PositionOut,
     TradeOut,
+    ValuePoint,
 )
 
 # Process-wide, shared by every request. See module docstring.
@@ -68,6 +70,7 @@ _books: dict[str, OrderBook] = {}
 
 SYMBOLS = ["AAPL", "NVDA", "MSFT"]
 BASE_TICK_SECONDS = 1.0
+VALUE_POINTS = 240           # how finely an account's all-time chart is drawn
 
 _sim: MarketSim | None = None
 _speed = 1.0
@@ -312,6 +315,80 @@ def deposit(name: str, body: DepositRequest, ex: Exchange = Depends(get_exchange
     return _portfolio(ex, name)
 
 
+@app.get("/accounts/{name}/history", response_model=list[ValuePoint], tags=["accounts"])
+def account_history(name: str, ex: Exchange = Depends(get_exchange)):
+    """What the account was actually worth, from its first trade until now.
+
+    Replays its trades in order, valuing whatever it held at each moment at
+    that moment's price. So the first point is what it started with and the
+    last is what it has now, and the line agrees with the all-time gain.
+    """
+    try:
+        account = ex.get_account(name)
+    except ExchangeError as exc:
+        raise _http(exc) from exc
+    trades = ex.session.exec(
+        select(TradeRecord)
+        .where(or_(TradeRecord.buyer_account_id == account.id,
+                   TradeRecord.seller_account_id == account.id))
+        .order_by(TradeRecord.id)
+    ).all()
+    if not trades:
+        return []
+
+    # Work out the starting cash by undoing every trade.
+    cash = account.cash_cents
+    for t in trades:
+        notional = t.price_cents * t.quantity
+        if t.buyer_account_id == account.id:
+            cash += notional
+        if t.seller_account_id == account.id:
+            cash -= notional
+
+    start = trades[0].created_at.timestamp()
+    now = time.time()
+    step = max(1, math.ceil((now - start) / VALUE_POINTS))
+    closes = {s: _real_candles(ex.session, s, step, start)
+              for s in {t.symbol for t in trades}}
+
+    held: dict[str, int] = {}
+    price: dict[str, int] = {}
+
+    def worth() -> int:
+        return cash + sum(q * price[s] for s, q in held.items())
+
+    points = [ValuePoint(t=start - 1, v=cash)]
+    i = 0
+    bucket = int(start) // step * step
+    while bucket < now:
+        end = bucket + step
+        while i < len(trades) and trades[i].created_at.timestamp() < end:
+            t = trades[i]
+            notional = t.price_cents * t.quantity
+            if t.buyer_account_id == account.id:
+                cash -= notional
+                held[t.symbol] = held.get(t.symbol, 0) + t.quantity
+            if t.seller_account_id == account.id:
+                cash += notional
+                held[t.symbol] = held.get(t.symbol, 0) - t.quantity
+            price[t.symbol] = t.price_cents
+            i += 1
+        for s in held:
+            c = closes[s].get(bucket)
+            if c is not None:
+                price[s] = c.close
+        if end < now:  # the bucket still open is covered by the live point below
+            points.append(ValuePoint(t=end, v=worth()))
+        bucket = end
+
+    for s in held:
+        last = _last_price(ex, s)
+        if last is not None:
+            price[s] = last
+    points.append(ValuePoint(t=now, v=worth()))
+    return points
+
+
 def _portfolio(ex: Exchange, name: str) -> PortfolioOut:
     account = ex.get_account(name)
     positions = ex.session.exec(
@@ -483,6 +560,24 @@ def symbols():
     ] if _sim else []
 
 
+def _real_candles(session: Session, symbol: str, seconds: int,
+                  since: float) -> dict[int, Candle]:
+    """Actual trades since a moment, bucketed in the database, keyed by bucket start."""
+    rows = session.connection().execute(text("""
+        SELECT floor(extract(epoch FROM created_at::timestamptz) / :s)::bigint * :s AS bucket,
+               (array_agg(price_cents ORDER BY id))[1] AS open,
+               max(price_cents) AS high,
+               min(price_cents) AS low,
+               (array_agg(price_cents ORDER BY id DESC))[1] AS close,
+               sum(quantity)::bigint AS volume
+        FROM trade_record
+        WHERE symbol = :symbol AND created_at::timestamptz >= to_timestamp(:since)
+        GROUP BY 1 ORDER BY 1
+    """), {"s": seconds, "symbol": symbol, "since": since}).all()
+    return {int(r.bucket): Candle(t=int(r.bucket), open=r.open, high=r.high, low=r.low,
+                                  close=r.close, volume=r.volume) for r in rows}
+
+
 @app.get("/candles/{symbol}", response_model=list[Candle], tags=["market"])
 def candles(symbol: str, seconds: int = Query(5, ge=1, le=604_800),
             limit: int = Query(120, ge=1, le=600),
@@ -498,19 +593,7 @@ def candles(symbol: str, seconds: int = Query(5, ge=1, le=604_800),
     # restarted fills "the past 5 minutes" with buckets from hours earlier,
     # and the chart draws the overnight gap as one long flat line.
     cutoff = time.time() - seconds * limit
-    rows = ex.session.connection().execute(text("""
-        SELECT floor(extract(epoch FROM created_at::timestamptz) / :s)::bigint * :s AS bucket,
-               (array_agg(price_cents ORDER BY id))[1] AS open,
-               max(price_cents) AS high,
-               min(price_cents) AS low,
-               (array_agg(price_cents ORDER BY id DESC))[1] AS close,
-               sum(quantity)::bigint AS volume
-        FROM trade_record
-        WHERE symbol = :symbol AND created_at::timestamptz >= to_timestamp(:cutoff)
-        GROUP BY 1 ORDER BY 1
-    """), {"s": seconds, "symbol": symbol, "cutoff": cutoff}).all()
-    buckets = {int(r.bucket): Candle(t=int(r.bucket), open=r.open, high=r.high, low=r.low,
-                                close=r.close, volume=r.volume) for r in rows}
+    buckets = _real_candles(ex.session, symbol, seconds, cutoff)
 
     earliest = min(buckets, default=None)
     for t, price in _history.get(symbol, []):

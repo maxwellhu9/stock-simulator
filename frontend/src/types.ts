@@ -93,6 +93,11 @@ export interface Candle {
   volume: number;
 }
 
+export interface ValuePoint {
+  t: number;
+  v: number;
+}
+
 export interface Population {
   value: number;
   momentum: number;

@@ -84,6 +84,7 @@ export class Exchange {
   // or memory would grow by thousands of orders a minute.
   private history = new Map<number, OrderRec[]>();
   private basis = new Map<string, Basis>();
+  private fills = new Map<number, TradeRec[]>();
   trades = new Map<string, TradeRec[]>();
   bars = new Map<string, Bar[]>();
   private ids = { account: 0, order: 0, trade: 0 };
@@ -142,6 +143,16 @@ export class Exchange {
 
   basisOf(account: number, symbol: string): Basis | undefined {
     return this.basis.get(`${account}:${symbol}`);
+  }
+
+  /** Every trade a person has been part of, oldest first. */
+  fillsOf(account: number): TradeRec[] {
+    let list = this.fills.get(account);
+    if (!list) {
+      list = [];
+      this.fills.set(account, list);
+    }
+    return list;
   }
 
   ordersOf(account: number): OrderRec[] {
@@ -255,6 +266,7 @@ export class Exchange {
       this.trackBasis(buyer, symbol, f.price, f.quantity, true);
       this.trackBasis(seller, symbol, f.price, f.quantity, false);
     }
+    for (const a of new Set([buyer, seller])) if (!isBot(a)) this.fillsOf(a.id).push(t);
     this.record(t);
     // The resting side is finished with once filled; the incoming side is
     // handled by placeOrder after every fill has settled.

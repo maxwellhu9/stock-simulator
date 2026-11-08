@@ -13,6 +13,7 @@ import type {
   Side,
   SimState,
   Trade,
+  ValuePoint,
 } from "./types";
 import { ApiError } from "./apiError";
 import { demoApi } from "./demo/server";
@@ -62,6 +63,9 @@ const httpApi = {
     request<Portfolio>("/accounts", post({ name, initial_cash })),
   portfolio: (name: string) =>
     request<Portfolio>(`/accounts/${encodeURIComponent(name)}`),
+
+  valueHistory: (name: string) =>
+    request<ValuePoint[]>(`/accounts/${encodeURIComponent(name)}/history`),
 
   placeOrder: (body: {
     account: string;

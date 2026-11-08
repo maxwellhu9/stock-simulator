@@ -12,7 +12,11 @@ const STATUS: Record<string, string> = {
   open: "Waiting", partially_filled: "Partly filled", filled: "Filled", cancelled: "Cancelled", expired: "Expired",
 };
 
+const when = (t: number) =>
+  new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
 interface Props {
+  account: string;
   symbols: string[];
   portfolio: Portfolio | null;
   orders: Order[];
@@ -20,41 +24,27 @@ interface Props {
   onCancel: (id: number) => void;
 }
 
-export function HomeView({ symbols, portfolio: p, orders, onOpen, onCancel }: Props) {
+export function HomeView({ account, symbols, portfolio: p, orders, onOpen, onCancel }: Props) {
   const [candles, setCandles] = useState<Record<string, Candle[]>>({});
+  const [value, setValue] = useState<Point[]>([]);
 
   useEffect(() => {
     let alive = true;
-    const load = () =>
+    const load = () => {
       Promise.all(symbols.map((s) => api.candles(s, 5, 60).then((c) => [s, c] as const)))
         .then((rows) => alive && setCandles(Object.fromEntries(rows)))
         .catch(() => undefined);
+      api.valueHistory(account).then((v) => alive && setValue(v)).catch(() => undefined);
+    };
     load();
     const id = setInterval(load, 3000);
     return () => {
       alive = false;
       clearInterval(id);
     };
-  }, [symbols]);
+  }, [account, symbols]);
 
-  // What today's holdings were worth over the last five minutes: cash plus
-  // each position at that moment's price.
   const held = p?.positions.filter((x) => x.quantity > 0) ?? [];
-  const times = [...new Set(Object.values(candles).flat().map((c) => c.t))].sort((a, b) => a - b);
-  const lastClose: Record<string, number> = {};
-  const series: Point[] = [];
-  if (p && held.length) {
-    for (const t of times) {
-      for (const s of symbols) {
-        const c = candles[s]?.find((x) => x.t === t);
-        if (c) lastClose[s] = c.close;
-      }
-      if (held.every((x) => lastClose[x.symbol] !== undefined)) {
-        const value = p.cash.cents + held.reduce((n, x) => n + x.quantity * lastClose[x.symbol], 0);
-        series.push({ t, v: value });
-      }
-    }
-  }
 
   const gain = (p?.unrealized_pnl?.cents ?? 0) + (p?.realized_pnl?.cents ?? 0);
   const total = p?.total_value?.cents ?? p?.cash.cents ?? 0;
@@ -76,10 +66,10 @@ export function HomeView({ symbols, portfolio: p, orders, onOpen, onCancel }: Pr
         </span>
         <span className="muted" style={{ fontSize: 14 }}> all time</span>
         <div style={{ marginTop: 14 }}>
-          {held.length ? (
-            <PriceChart series={series} height={240} />
+          {value.length ? (
+            <PriceChart series={value} height={240} formatTime={when} />
           ) : (
-            <div className="chart-empty">Your value starts moving once you own something. Pick a stock below.</div>
+            <div className="chart-empty">Your chart starts with your first trade. Pick a stock below.</div>
           )}
         </div>
         {p && (
