@@ -125,6 +125,18 @@ sell fills completely and barely moves the price. A 5,000-share sell only fills
 20% of the way before the book runs out of buyers — and a few seconds later the
 momentum traders have followed it down.
 
+## Challenge
+
+Buy 5,000 shares in 60 seconds while something unexpected happens to the market.
+Buy too fast and you push the price up on yourself. Buy too slowly and you run
+out of time. Then you get compared with three simple strategies playing the same
+event 200 times: one huge order, small orders every second, and patient limit
+orders.
+
+Splitting it up evenly won under good news, bad news and a flash crash. The huge
+order only ever got about 25% filled before the book ran out of sellers. That's
+true of this thin simulated market, not a claim about real ones.
+
 ## Things that broke
 
 **I measured the wrong thing and it looked like a finding.** Testing the big-order
@@ -143,43 +155,12 @@ being reseeded from the live stock price while the book was still sitting at the
 old one. Now old bot orders get cancelled on startup and the market picks up from
 its last trade.
 
-**Market makers were absent from their own market.** Each second, makers pulled
-their quotes and then waited in a shuffled line with everyone else to post new
-ones. Anyone drawn ahead of them traded against a book with no makers in it. After
-a restart the book was completely empty and the first market order fell straight
-through. Makers now requote before anyone else acts.
-
 **Money overflowed the column.** The server crashed on startup with
 `NumericValueOutOfRange` when I funded the market maker with $100,000,000. In
 cents that's 10 billion, and Postgres `INTEGER` stops at 2,147,483,647. Storing
 money as cents means a 32-bit column caps out around $21.4 million, and SQLModel
 picks `INTEGER` for a plain Python `int` without saying anything. All the cents
 columns are `BIGINT` now, with a test that opens a $100M account.
-
-**My typecheck wasn't the real typecheck.** `npx tsc --noEmit` was clean but the
-Docker build failed. The build runs `tsc -b`, which uses a different config with
-`erasableSyntaxOnly`, and `constructor(readonly status: number)` is
-TypeScript-only syntax that can't be erased. I'd been running a command that
-didn't match what actually builds.
-
-**I tested the wrong server for ten minutes.** After bringing the containers up,
-`curl localhost:8077/health` showed a symbol that only existed in my local dev
-database. An old `uvicorn` still had `127.0.0.1:8077` while the container had
-`*:8077`, and `localhost` resolved to the local one. Both were running, both
-answered, and only one was the thing I meant to test.
-
-**A container that worked but reported unhealthy.** nginx served pages fine on
-8080 but its healthcheck kept failing. nginx binds `0.0.0.0:80`, which is IPv4
-only, and busybox `wget` resolves `localhost` to `::1` first and gets refused.
-The app was never broken, just the check. It matters because compose gates
-startup on health, so anything depending on that container would wait forever.
-
-**Tests that only failed together.** A WebSocket test hung for two minutes,
-because the event bus binds its loop in FastAPI's lifespan hook and my fixture
-skips lifespan, so publishing silently did nothing. Fixing that exposed a second
-problem: the bus is a module-level singleton, so once one test ran, every later
-test inherited its closed event loop. Now it resets between tests and there's a
-15 second timeout.
 
 ## Running it
 
@@ -214,7 +195,7 @@ Tests:
 cd backend && uv run pytest -q
 ```
 
-There are also three scripts that print what they're doing and don't need a
+There are also four scripts that print what they're doing and don't need a
 server:
 
 ```bash
@@ -235,8 +216,10 @@ uv run python demo_market.py      # the bots trading on their own, price vs. fai
 - The bots are tuned by hand. The behaviors in the table above hold up across
   runs, but the exact numbers depend on parameters I picked.
 - No auth. Accounts are just names.
-- Not deployed anywhere. WebSockets need a long-lived process, so serverless
-  hosting won't work for it.
+- The full version isn't hosted anywhere. WebSockets and Postgres need a
+  long-lived server, so the demo link is the browser-only build.
+- Chart history from before the market first ran is made up, so the long ranges
+  have something to show. None of it is real prices.
 
 ## Built with
 
