@@ -7,11 +7,13 @@ what happens.
 
 **[Try it in your browser](https://maxwellhu9.github.io/stock-simulator/)**
 
-![home](docs/home.png)
+![a Challenge round: buying 5,000 shares while the market makers pull out](docs/challenge.gif)
 
 Most trading projects I looked at are a price chart with a buy button. I wanted
 to build the part underneath: the thing that decides who trades with whom, at
 what price, and in what order, and then makes sure the money moves correctly.
+
+![home](docs/home.png)
 
 ## How it works
 
