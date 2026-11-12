@@ -13,7 +13,12 @@ const SIZES = [100, 500, 1000];
 
 type Stage = "ready" | "playing" | "done";
 
-export function ChallengeView() {
+interface Props {
+  /** Seconds left in a running round, or null when there isn't one. */
+  onClock?: (left: number | null) => void;
+}
+
+export function ChallengeView({ onClock }: Props) {
   const [stage, setStage] = useState<Stage>("ready");
   const [, redraw] = useState(0);
   const round = useRef<Round | null>(null);
@@ -26,6 +31,7 @@ export function ChallengeView() {
 
   const finish = async () => {
     const e = event.current!;
+    onClock?.(null);
     setOutcome(round.current!.result());
     setStats(null);
     setStage("done");
@@ -38,15 +44,23 @@ export function ChallengeView() {
     setOutcome(null);
     setStats(null);
     setStage("playing");
+    onClock?.(SECONDS);
   };
+
+  // Signing out mid-round unmounts this page; don't leave a clock behind.
+  useEffect(() => () => onClock?.(null), [onClock]);
 
   useEffect(() => {
     if (stage !== "playing") return;
     const id = setInterval(() => {
       const r = round.current!;
       r.step();
-      if (r.over) finish();
-      else refresh();
+      if (r.over) {
+        finish();
+      } else {
+        onClock?.(SECONDS - r.second);
+        refresh();
+      }
     }, 1000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -47,6 +47,7 @@ export default function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [sheet, setSheet] = useState<Side | null>(null);
   const [events, setEvents] = useState<MarketEvent[]>([]);
+  const [challengeClock, setChallengeClock] = useState<number | null>(null);
 
   const { book, trades, last } = useMarketSocket(symbol);
 
@@ -105,6 +106,9 @@ export default function App() {
         {TABS.map(([k, label, icon]) => (
           <button key={k} className={`nav-item ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}>
             <Icon name={icon} />{label}
+            {k === "challenge" && challengeClock !== null && tab !== "challenge" && (
+              <span className="nav-clock">{challengeClock}s</span>
+            )}
           </button>
         ))}
         <div className="side-foot">
@@ -129,7 +133,10 @@ export default function App() {
           <MarketView account={account} symbol={symbol} symbols={symbols} onSymbol={setSymbol}
                       trades={trades} events={events} onEvent={loadEvents} />
         )}
-        {tab === "challenge" && <ChallengeView />}
+        {/* Always mounted, so a round keeps running while you look at another page. */}
+        <div hidden={tab !== "challenge"}>
+          <ChallengeView onClock={setChallengeClock} />
+        </div>
       </main>
 
       {sheet && (

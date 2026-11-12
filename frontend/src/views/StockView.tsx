@@ -49,15 +49,22 @@ export function StockView({ symbol, symbols, onSymbol, last, book, portfolio, on
   const [range, setRange] = useState<Range>("LIVE");
   const [series, setSeries] = useState<Point[]>([]);
   const [scrub, setScrub] = useState<Point | null>(null);
+  // Bars from before the market's first trade have no volume: nobody traded them.
+  const [madeUp, setMadeUp] = useState(false);
 
   useEffect(() => {
     let alive = true;
     const { seconds, limit } = RANGES[range];
     const load = () =>
       api.candles(symbol, seconds, limit)
-        .then((cs) => alive && setSeries(cs.map((c) => ({ t: c.t, v: c.close }))))
+        .then((cs) => {
+          if (!alive) return;
+          setSeries(cs.map((c) => ({ t: c.t, v: c.close })));
+          setMadeUp(cs.some((c) => c.volume === 0));
+        })
         .catch(() => undefined);
     setSeries([]);
+    setMadeUp(false);
     load();
     const id = setInterval(load, range === "LIVE" ? 1000 : range === "1H" ? 3000 : 15000);
     return () => {
@@ -126,6 +133,9 @@ export function StockView({ symbol, symbols, onSymbol, last, book, portfolio, on
               </span>
             )}
           </div>
+          {madeUp && (
+            <p className="chart-note">Prices from before this market started are made up.</p>
+          )}
           <div className="actions">
             <button className="btn btn-buy" onClick={() => onTrade("buy")}>Buy {symbol}</button>
             <button className="btn btn-sell" onClick={() => onTrade("sell")}>Sell {symbol}</button>

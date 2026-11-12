@@ -60,6 +60,7 @@ input { font: inherit; }
   padding: 11px 14px; border: none; border-radius: 12px; cursor: pointer;
   background: none; text-align: left; font-size: 15px; font-weight: 600; color: var(--ink-2);
 }
+.nav-clock { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--accent-strong); }
 .nav-item:hover { background: rgba(11, 27, 63, 0.04); color: var(--ink); }
 .nav-item.on { background: var(--panel); color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
 .side-foot { margin-top: auto; padding: 14px; border-top: 1px solid var(--line); font-size: 14px; }
@@ -163,6 +164,7 @@ input { font: inherit; }
 .range-tabs button.on { border-bottom-color: currentColor; }
 .range-tabs button.on.up { color: var(--up); }
 .range-tabs button.on.down { color: var(--down); }
+.chart-note { margin: -8px 0 18px; font-size: 12px; color: var(--ink-3); }
 .ranges { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .kv { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; border-bottom: 1px solid var(--line); }
@@ -300,6 +302,8 @@ input { font: inherit; }
   .split { grid-template-columns: 1fr; }
   .chart-empty { height: 130px; }
   .challenge-actions { grid-template-columns: repeat(2, 1fr); }
+  .nav-item { position: relative; }
+  .nav-clock { position: absolute; top: 3px; right: 8px; margin: 0; font-size: 10px; }
   .challenge-clock { font-size: 38px; }
   .challenge-top { gap: 18px; }
 }
